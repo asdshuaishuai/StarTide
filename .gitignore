@@ -1,0 +1,17 @@
+# build output
+build/
+gui/target/
+StarTide.app/
+
+# object files and dependency files from make
+*.o
+*.d
+
+# generated icon set (regenerate with gui/resources/make_icon.py)
+gui/resources/AppIcon.iconset/
+
+# local tooling state
+.zcode/
+__pycache__/
+*.log
+.DS_Store
