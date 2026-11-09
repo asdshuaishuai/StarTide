@@ -19,11 +19,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 
-use gpui::{
-    div, prelude::*, px, size, uniform_list, App, Application, Bounds, Context, FocusHandle,
-    FontWeight, KeyDownEvent, Rgba, ScrollStrategy, SharedString, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowOptions,
-};
+use gpui_kit::assets::Assets;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use gpui_kit::component::badge::Badge;
+use gpui_kit::component::Sizable;
+use gpui_kit::component::{Disableable, Icon, IconName};
+use gpui_kit::*;
+use gpui_kit::prelude::*;
 use serde::Deserialize;
 
 /* ------------------------------------------------------------ palette */
@@ -508,7 +510,7 @@ impl AppState {
                 if search_focused {
                     let first = self.visible_indices().first().copied();
                     self.select(first, cx);
-                    self.root_focus.focus(window);
+                    self.root_focus.focus(window, cx);
                 } else {
                     let count = self.visible_indices().len();
                     let effective = self.selected.filter(|i| *i < count);
@@ -521,7 +523,7 @@ impl AppState {
             "escape" => {
                 if search_focused {
                     self.query.clear();
-                    self.root_focus.focus(window);
+                    self.root_focus.focus(window, cx);
                     cx.notify();
                 } else if self.selected.is_some() {
                     self.selected = None;
@@ -531,7 +533,7 @@ impl AppState {
             }
             "/" => {
                 if !search_focused {
-                    self.search_focus.focus(window);
+                    self.search_focus.focus(window, cx);
                     cx.notify();
                 }
             }
@@ -550,7 +552,7 @@ impl AppState {
             }
             "escape" => {
                 self.query.clear();
-                self.root_focus.focus(window);
+                self.root_focus.focus(window, cx);
                 cx.notify();
                 cx.stop_propagation();
                 return;
@@ -581,52 +583,25 @@ impl AppState {
 /* -------------------------------------------------------------- view */
 
 impl AppState {
-    /* A soft pill button. */
-    fn pill(
+    /* A soft action button, powered by the kit's Button with the brand teal. */
+    fn action_button(
         &self,
         id: &'static str,
         label: &'static str,
-        danger: bool,
+        icon: IconName,
+        variant: impl Fn(Button) -> Button,
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-    ) -> gpui::Stateful<gpui::Div> {
+    ) -> Button {
+        let armed = id == "unlink" && self.unlink_armed;
         let disabled = self.busy || !self.cli_ok;
-        let armed = danger && self.unlink_armed;
-        let text = if armed { "确认？" } else { label };
-        div()
-            .id(id)
-            .px_3p5()
-            .h_8()
-            .flex()
-            .items_center()
-            .rounded_full()
-            .bg(if armed { RED } else { CARD })
-            .border_1()
-            .border_color(if armed { RED } else { HAIRLINE })
-            .shadow_xs()
-            .text_size(px(12.0))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(if armed {
-                rgba_hex(0xffffff, 1.0)
-            } else if danger {
-                RED
-            } else if disabled {
-                INK_FAINT
-            } else {
-                INK
-            })
-            .when(disabled, |b| b.opacity(0.5))
-            .when(!disabled, |b| {
-                b.hover(|s| {
-                    s.bg(if armed { RED } else { CARD_HOVER })
-                        .border_color(if armed { RED } else { TEAL_EDGE })
-                })
-                .on_click(cx.listener(move |state, _e, window, cx| {
-                    state.root_focus.focus(window);
-                    on_click(state, cx);
-                }))
-            })
-            .child(SharedString::from(text.to_string()))
+        let text: SharedString = if armed { "确认？" } else { label }.into();
+        let base = Button::new(id).icon(icon).label(text).disabled(disabled);
+        let base = if armed { base.danger() } else { variant(base) };
+        let view = cx.entity();
+        base.on_click(move |_e, _window, cx| {
+            let _ = view.update(cx, |state, cx| on_click(state, cx));
+        })
     }
 
     /* A small pill used for the status tabs and the scope switch. */
@@ -709,15 +684,9 @@ impl AppState {
             )
     }
 
-    /* The three-dot tide mark. */
-    fn brand_mark(&self) -> gpui::Div {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(3.0))
-            .child(div().size(px(10.0)).rounded_full().bg(TEAL))
-            .child(div().size(px(7.0)).rounded_full().bg(rgba_hex(0x0f8a7e, 0.55)))
-            .child(div().size(px(4.5)).rounded_full().bg(rgba_hex(0x0f8a7e, 0.30)))
+    /* The brand mark: one Lucide star. */
+    fn brand_mark(&self) -> Icon {
+        Icon::new(IconName::Star).with_size(px(22.0)).text_color(TEAL)
     }
 
     fn section_label(&self, text: &'static str) -> gpui::Div {
@@ -860,25 +829,53 @@ impl gpui::Render for AppState {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(self.pill("scan", "扫描", false, cx, |state, cx| {
-                        state.run("scan", vec!["scan", "--json"], true, cx);
-                    }))
-                    .child(self.pill("sync", "同步", false, cx, |state, cx| {
-                        state.run("sync", vec!["sync", "--json"], true, cx);
-                    }))
-                    .child(self.pill("link", "链接", false, cx, |state, cx| {
-                        let scope = if state.scope == Scope::Own { "own" } else { "all" };
-                        state.run(
-                            "link",
-                            vec!["link", "--dry-run", "--json", "--scope", scope],
-                            true,
-                            cx,
-                        );
-                    }))
-                    .child(self.pill("gc", "清理", false, cx, |state, cx| {
-                        state.run("gc", vec!["gc", "--dry-run", "--json"], false, cx);
-                    }))
-                    .child(self.pill("unlink", "还原", true, cx, |state, cx| {
+                    .child(self.action_button(
+                        "scan",
+                        "扫描",
+                        IconName::HardDrive,
+                        |b| b.secondary(),
+                        cx,
+                        |state, cx| state.run("scan", vec!["scan", "--json"], true, cx),
+                    ))
+                    .child(self.action_button(
+                        "sync",
+                        "同步",
+                        IconName::RefreshCw,
+                        |b| b.secondary(),
+                        cx,
+                        |state, cx| state.run("sync", vec!["sync", "--json"], true, cx),
+                    ))
+                    .child(self.action_button(
+                        "link",
+                        "链接",
+                        IconName::Network,
+                        |b| b.custom(ButtonCustomVariant::new(cx).color(Hsla::from(TEAL)).foreground(Hsla::from(rgba_hex(0xffffff, 1.0)))),
+                        cx,
+                        |state, cx| {
+                            let scope = if state.scope == Scope::Own { "own" } else { "all" };
+                            state.run(
+                                "link",
+                                vec!["link", "--dry-run", "--json", "--scope", scope],
+                                true,
+                                cx,
+                            );
+                        },
+                    ))
+                    .child(self.action_button(
+                        "gc",
+                        "清理",
+                        IconName::Delete,
+                        |b| b.secondary(),
+                        cx,
+                        |state, cx| state.run("gc", vec!["gc", "--dry-run", "--json"], false, cx),
+                    ))
+                    .child(self.action_button(
+                        "unlink",
+                        "还原",
+                        IconName::Undo,
+                        |b| b.secondary(),
+                        cx,
+                        |state, cx| {
                         if state.unlink_armed {
                             state.run("unlink", vec!["unlink", "--json"], true, cx);
                         } else {
@@ -912,15 +909,10 @@ impl gpui::Render for AppState {
             .shadow_sm()
             .on_mouse_down(gpui::MouseButton::Left, {
                 let search_focus = self.search_focus.clone();
-                move |_e, window, _cx| search_focus.focus(window)
+                move |_e, window, _cx| search_focus.focus(window, _cx)
             })
             .on_key_down(cx.listener(Self::on_search_key))
-            .child(
-                div()
-                    .text_size(px(15.0))
-                    .text_color(INK_FAINT)
-                    .child("⌕"),
-            )
+            .child(Icon::new(IconName::Search).with_size(px(16.0)).text_color(INK_FAINT))
             .child(if self.query.is_empty() {
                 div()
                     .text_size(px(14.5))
@@ -1109,7 +1101,7 @@ impl gpui::Render for AppState {
                     }
                 },
             )
-            .track_scroll(self.list_scroll.clone())
+            .track_scroll(&self.list_scroll)
             .flex_1()
             .into_any_element()
         };
@@ -1264,17 +1256,12 @@ impl gpui::Render for AppState {
                                     .items_center()
                                     .gap_2()
                                     .child(
-                                        div()
-                                            .px_2()
-                                            .py_0p5()
-                                            .rounded_full()
-                                            .text_size(px(9.5))
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(if entry.stored { TEAL } else { AMBER })
-                                            .bg(if entry.stored {
-                                                TEAL_SOFT
+                                        Badge::new()
+                                            .dot()
+                                            .color(if entry.stored {
+                                                Hsla::from(TEAL)
                                             } else {
-                                                rgba_hex(0xb8862c, 0.10)
+                                                Hsla::from(AMBER)
                                             })
                                             .child(if entry.stored {
                                                 "已入库"
@@ -1517,7 +1504,7 @@ impl AppState {
             .bg(if selected { TEAL_SOFT } else { CARD })
             .when(!selected, |r| r.hover(|s| s.bg(CARD_HOVER)))
             .on_click(cx.listener(move |state, _e, window, cx| {
-                state.root_focus.focus(window);
+                state.root_focus.focus(window, cx);
                 state.select(Some(ix), cx);
                 state.show_detail = true;
                 cx.notify();
@@ -1595,37 +1582,40 @@ fn iftx(selected: bool) -> Rgba {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1200.0), px(780.0)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("StarTide".into()),
+    gpui_kit::application()
+        .with_assets(Assets)
+        .run(|cx| {
+            init(cx);
+            let bounds = Bounds::centered(None, size(px(1200.0), px(780.0)), cx);
+            open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("StarTide".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            |window, cx| {
-                cx.new(|cx| {
-                    let mut state = AppState::new(cx);
-                    if state.cli_ok {
-                        state.refresh(cx);
-                    } else {
-                        state.set_message(
-                            MessageKind::Err,
-                            format!(
-                                "找不到 skillctl 引擎（{}）。运行 make 构建，或用 SKILLCTL_BIN 指定路径",
-                                state.cli.display()
-                            ),
-                        );
-                    }
-                    state.root_focus.focus(window);
-                    state
-                })
-            },
-        )
-        .expect("open window");
-        cx.activate(true);
-    });
+                },
+                cx,
+                |window, cx| {
+                    cx.new(|cx| {
+                        let mut state = AppState::new(cx);
+                        if state.cli_ok {
+                            state.refresh(cx);
+                        } else {
+                            state.set_message(
+                                MessageKind::Err,
+                                format!(
+                                    "找不到 skillctl 引擎（{}）。运行 make 构建，或用 SKILLCTL_BIN 指定路径",
+                                    state.cli.display()
+                                ),
+                            );
+                        }
+                        state.root_focus.focus(window, cx);
+                        state
+                    })
+                },
+            )
+            .expect("open window");
+        });
 }
