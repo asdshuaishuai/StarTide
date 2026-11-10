@@ -26,7 +26,7 @@ use gpui_kit::component::command::{Command as CommandPalette, CommandItem, Comma
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable;
 use gpui_kit::component::status_bar::StatusBar;
-use gpui_kit::component::{Disableable, Icon, IconName, TitleBar};
+use gpui_kit::component::{Disableable, Icon, IconName, Theme, TitleBar};
 use gpui_kit::*;
 use gpui_kit::prelude::*;
 use serde::Deserialize;
@@ -609,11 +609,6 @@ fn modifier_label() -> &'static str {
     }
 }
 
-/* 在品牌色上叠一层透明度，做成柔和底色。 */
-fn tint(c: Rgba) -> Rgba {
-    Rgba { r: c.r, g: c.g, b: c.b, a: 0.12 }
-}
-
 impl AppState {
     /* A soft action button, powered by the kit's Button with the brand teal. */
     fn action_button(
@@ -783,68 +778,52 @@ impl AppState {
             })
     }
 
-    /* One agent on the icon rail: initial letter on its colour, name below. */
-    fn agent_tile(
-        &self,
-        id: String,
-        initial: String,
-        color: Rgba,
-        active: bool,
-        cx: &Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-    ) -> gpui::AnyElement {
-        div()
-            .id(SharedString::from(id))
-            .w(px(44.0))
-            .h(px(44.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(14.0))
-            .border_2()
-            .border_color(if active { TEAL } else { TRANSPARENT })
-            .bg(if active { color } else { tint(color) })
-            .text_color(if active {
-                rgba_hex(0xffffff, 1.0)
-            } else {
-                color
-            })
-            .text_size(px(14.0))
-            .font_weight(FontWeight::MEDIUM)
-            .when(!active, |t| {
-                t.hover(|s| s.bg(tint(color)).border_color(rgba_hex(0x0f8a7e, 0.25)))
-            })
-            .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
-            .child(SharedString::from(initial))
-            .into_any_element()
-    }
-
-    /* Tile + always-visible name, so the rail identifies agents at a glance. */
-    fn agent_cell(
+    /* One sidebar row: colour dot, name, live count. */
+    fn agent_row(
         &self,
         id: String,
         name: String,
-        initial: String,
+        count: Option<usize>,
         color: Rgba,
         active: bool,
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-    ) -> gpui::Div {
+    ) -> gpui::Stateful<gpui::Div> {
         div()
+            .id(SharedString::from(id))
+            .h(px(30.0))
+            .px_3()
+            .mx_2()
             .flex()
-            .flex_col()
             .items_center()
-            .gap(px(3.0))
-            .child(self.agent_tile(id, initial, color, active, cx, on_click))
+            .gap_2()
+            .rounded(px(8.0))
+            .bg(if active { TEAL_SOFT } else { TRANSPARENT })
+            .when(!active, |r| r.hover(|s| s.bg(HAIRLINE)))
+            .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
+            .child(div().size(px(8.0)).flex_none().rounded_full().bg(color))
             .child(
                 div()
-                    .w(px(64.0))
+                    .min_w_0()
+                    .flex_1()
                     .truncate()
-                    .text_center()
-                    .text_size(px(9.0))
-                    .text_color(if active { INK } else { INK_FAINT })
+                    .text_size(px(12.0))
+                    .font_weight(if active {
+                        FontWeight::MEDIUM
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .text_color(if active { TEAL } else { INK })
                     .child(SharedString::from(name)),
             )
+            .children(count.map(|n| {
+                div()
+                    .flex_none()
+                    .font_family("Menlo")
+                    .text_size(px(9.5))
+                    .text_color(if active { TEAL } else { INK_FAINT })
+                    .child(SharedString::from(n.to_string()))
+            }))
     }
 }
 
@@ -976,27 +955,10 @@ impl gpui::Render for AppState {
                 .child(self.brand_mark())
                 .child(
                     div()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .text_size(px(15.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(INK)
-                                .child("StarTide"),
-                        )
-                        .child(
-                            div()
-                                .font_family("Menlo")
-                                .text_size(px(9.0))
-                                .text_color(INK_FAINT)
-                                .child(SharedString::from(format!(
-                                    "{} skills · {} agents · {} shared",
-                                    self.skills.len(),
-                                    self.agents.len(),
-                                    format_bytes(self.store_bytes)
-                                ))),
-                        ),
+                        .text_size(px(15.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(INK)
+                        .child("StarTide"),
                 )
                 .child(div().flex_1())
                 .child(
@@ -1149,7 +1111,7 @@ impl gpui::Render for AppState {
                     )),
             );
 
-        /* =================================================== icon rail */
+        /* ==================================================== sidebar */
         let fold_at = 10usize;
         let shown = if self.agents_expanded {
             self.agents.len()
@@ -1158,21 +1120,30 @@ impl gpui::Render for AppState {
         };
         let mut rail = div()
             .id("agent-rail")
-            .w(px(68.0))
+            .w(px(176.0))
             .flex_none()
             .flex()
             .flex_col()
-            .items_center()
-            .gap(px(8.0))
-            .py(px(12.0))
+            .py(px(10.0))
+            .gap(px(2.0))
             .border_r_1()
             .border_color(HAIRLINE)
-            .bg(CARD)
-            .overflow_y_scroll();
-        rail = rail.child(self.agent_cell(
+            .bg(CREAM)
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .px_4()
+                    .pt_1()
+                    .pb_1p5()
+                    .text_size(px(10.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(INK_FAINT)
+                    .child("智能体"),
+            );
+        rail = rail.child(self.agent_row(
             "rail-all".into(),
             "全部".into(),
-            "全".into(),
+            Some(filtered.len()),
             TEAL,
             self.agent_filter.is_none(),
             cx,
@@ -1188,13 +1159,16 @@ impl gpui::Render for AppState {
             } else {
                 agent.label.clone()
             };
-            let initial = label.chars().next().unwrap_or('•').to_string();
+            let count = filtered
+                .iter()
+                .filter(|i| self.skills[**i].agents.iter().any(|a| a == &agent.id))
+                .count();
             let color = self.agent_color(&agent.id);
             let is_active = self.agent_filter.as_deref() == Some(agent.id.as_str());
-            rail = rail.child(self.agent_cell(
+            rail = rail.child(self.agent_row(
                 format!("rail-{}", agent.id),
-                label.clone(),
-                initial,
+                label,
+                Some(count),
                 color,
                 is_active,
                 cx,
@@ -1215,17 +1189,28 @@ impl gpui::Render for AppState {
         }
         if self.agents.len() > fold_at {
             let more = self.agents.len() - shown;
-            rail = rail.child(self.agent_tile(
-                "rail-more".into(),
-                format!("+{}", more),
-                INK_MID,
-                false,
-                cx,
-                |state, cx| {
-                    state.agents_expanded = !state.agents_expanded;
-                    cx.notify();
-                },
-            ));
+            rail = rail.child(
+                div()
+                    .id("agents-toggle")
+                    .h(px(28.0))
+                    .px_3()
+                    .mx_2()
+                    .flex()
+                    .items_center()
+                    .rounded(px(8.0))
+                    .text_size(px(11.0))
+                    .text_color(INK_MID)
+                    .hover(|s| s.bg(HAIRLINE).text_color(INK))
+                    .on_click(cx.listener(|state, _e, _w, cx| {
+                        state.agents_expanded = !state.agents_expanded;
+                        cx.notify();
+                    }))
+                    .child(SharedString::from(format!(
+                        "{} {} 个",
+                        if self.agents_expanded { "收起" } else { "还有" },
+                        more
+                    ))),
+            );
         }
 
         /* ================================================= filter row */
@@ -1621,9 +1606,10 @@ impl gpui::Render for AppState {
                             .text_size(px(10.5))
                             .text_color(INK_MID)
                             .child(SharedString::from(format!(
-                                "引擎 skillctl · {} agents · {} units",
+                                "{} 技能 · {} agent · {} · 引擎 skillctl",
+                                self.skills.len(),
                                 self.agents.len(),
-                                self.store_units
+                                format_bytes(self.store_bytes)
                             ))),
                     ),
             )
@@ -1807,6 +1793,11 @@ fn main() {
         .with_assets(Assets)
         .run(|cx| {
             init(cx);
+            /* Brand the kit: every primary/secondary control draws in teal. */
+            Theme::update(cx, |theme| {
+                theme.colors.primary = Hsla::from(TEAL);
+                theme.colors.button_primary = Hsla::from(TEAL);
+            });
             let bounds = Bounds::centered(None, size(px(1200.0), px(780.0)), cx);
             open_window(
                 WindowOptions {
