@@ -661,6 +661,30 @@ impl AppState {
             )
     }
 
+    /* 视图切换小图标钮。 */
+    fn view_toggle(
+        &self,
+        id: &'static str,
+        icon: IconName,
+        active: bool,
+        cx: &Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(SharedString::from(id))
+            .w(px(24.0))
+            .h(px(22.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(3.0))
+            .bg(if active { BG_SEL } else { TRANSPARENT })
+            .text_color(if active { FG_BRIGHT } else { FG_DIM })
+            .when(!active, |c| c.hover(|s| s.bg(BG_HOVER).text_color(FG)))
+            .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
+            .child(Icon::new(icon).with_size(px(13.0)))
+    }
+
     /* 智能体树行。 */
     fn agent_row(
         &self,
@@ -920,6 +944,23 @@ impl AppState {
                                     .child(SharedString::from(
                                         entry.id.chars().take(12).collect::<String>(),
                                     )),
+                            )
+                            .child(
+                                div()
+                                    .id("detail-close")
+                                    .w(px(20.0))
+                                    .h(px(20.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(3.0))
+                                    .text_color(FG_DIM)
+                                    .hover(|s| s.bg(BG_HOVER).text_color(FG_BRIGHT))
+                                    .on_click(cx.listener(move |state, _e, _w, cx| {
+                                        state.selected = None;
+                                        cx.notify();
+                                    }))
+                                    .child(Icon::new(IconName::Close).with_size(px(12.0))),
                             ),
                     )
                     .child(
@@ -1219,6 +1260,7 @@ impl gpui::Render for AppState {
         /* ============================================ title bar */
         let titlebar = TitleBar::new().child(
             div()
+                .w_full()
                 .flex()
                 .items_center()
                 .gap_3()
@@ -1334,7 +1376,22 @@ impl gpui::Render for AppState {
                         "tab-out".into(), "仅目录", known_count,
                         self.status_tab == StatusTab::Known, cx,
                         |state, cx| { state.status_tab = StatusTab::Known; state.selected = None; cx.notify(); },
-                    )),
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(2.0))
+                            .ml(px(6.0))
+                            .child(self.view_toggle(
+                                "v-cards", IconName::LayoutDashboard, self.skill_view == SkillView::Cards, cx,
+                                |state, cx| state.skill_view = SkillView::Cards,
+                            ))
+                            .child(self.view_toggle(
+                                "v-list", IconName::Menu, self.skill_view == SkillView::List, cx,
+                                |state, cx| state.skill_view = SkillView::List,
+                            )),
+                    ),
             );
 
         /* ================================================ agent tree */
