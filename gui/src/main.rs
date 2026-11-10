@@ -74,7 +74,6 @@ const AGENT_COLORS: [Rgba; 10] = [
 
 const ROW_HEIGHT: f32 = 74.0;
 const DETAIL_WIDTH: f32 = 356.0;
-const PAD: f32 = 18.0;
 
 /* --------------------------------------------------------- cli output */
 
