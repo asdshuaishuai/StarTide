@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sh_config.h"
 #include "sh_fs.h"
+#include "sh_scan.h"
 #include "sh_hash.h"
 #include "sh_json.h"
 #include "sh_yaml.h"
@@ -310,6 +312,54 @@ static void test_tree_hash_stability(void) {
     sh_remove_tree(root);
 }
 
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+
+/* A directory the user cannot read must be skipped, never forced. */
+static void test_scan_skips_denied_dirs(void) {
+    if (geteuid() == 0) return; /* root ignores file modes; test is meaningless */
+
+    const char *root = "/tmp/skillctl_test_deny";
+    sh_remove_tree(root);
+    char *denied = sh_path_join(root, "locked");
+    sh_mkdir_p(denied);
+    char *ok = sh_path_join(root, "ok");
+    sh_mkdir_p(ok);
+    char *fm = sh_path_join(ok, "SKILL.md");
+    sh_write_file(fm, "---\nname: ok\ndescription: d\n---\n", 38);
+
+    chmod(denied, 0000);
+
+    sh_config cfg;
+    sh_config_defaults(&cfg, "/tmp");
+    /* point the single scan root at the fixture */
+    free(cfg.scan_roots[0]);
+    cfg.scan_roots[0] = strdup(root);
+
+    sh_scan_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.config = &cfg;
+    opts.compute_hash = 0;
+
+    sh_scan_result r;
+    sh_scan_run(&opts, &r);
+
+    CHECK(r.count == 1, "denied dir must be skipped, found %zu", r.count);
+    CHECK(r.permissions_denied >= 1, "denial must be counted, got %zu",
+          r.permissions_denied);
+    CHECK(r.units[0].name && strcmp(r.units[0].name, "ok") == 0,
+          "the readable skill is still found");
+
+    sh_scan_result_free(&r);
+    sh_config_free(&cfg);
+
+    chmod(denied, 0755); /* restore so the cleanup can remove it */
+    sh_remove_tree(root);
+}
+#endif
+
 int main(void) {
     test_paths();
     test_yaml_basic();
@@ -323,6 +373,10 @@ int main(void) {
     test_json();
     test_fs_basics();
     test_tree_hash_stability();
+
+#ifndef _WIN32
+    test_scan_skips_denied_dirs();
+#endif
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

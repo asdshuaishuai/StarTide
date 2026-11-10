@@ -89,6 +89,11 @@ skillctl link              # 真正替换
 
 ### 安全性
 
+- **权限边界**：skillctl 只在用户权限可访问的范围内工作，绝不尝试突破权限——
+  - 默认扫描根只有用户主目录（`$HOME` / `%USERPROFILE%`），不碰系统路径
+  - 遇到不可读的目录或文件（EACCES / EPERM / `ERROR_ACCESS_DENIED`）：扫描时静默跳过并计数，导入/复制时直接报错中断；绝不重试、绝不提权
+  - 不使用任何提权手段（无 sudo、无管理员请求；Windows 上链接降级为 junction 正是因为 junction 不需要特权）
+  - macOS 的 TCC 保护目录（邮件、照片、信息等）在默认排除表中
 - 原目录永远是 `rename` 进 trash，绝不删除；`gc` 默认 `--dry-run`
 - 插件缓存、应用自带 skill 包一律只读——内容被复制出来，原位不动
 - 被别的工具管理的 store（如 `~/.cc-switch`）在保护名单里，不会被接管
