@@ -20,8 +20,10 @@ use std::process::Command;
 use std::rc::Rc;
 
 use gpui_kit::assets::Assets;
-use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::badge::Badge;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use gpui_kit::component::command::{Command as CommandPalette, CommandItem, CommandState};
+use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::Sizable;
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{Disableable, Icon, IconName, TitleBar};
@@ -52,7 +54,6 @@ const INK_FAINT: Rgba = rgba_hex(0xa8a192, 1.0);
 /* One calm accent. */
 const TEAL: Rgba = rgba_hex(0x0f8a7e, 1.0);
 const TEAL_SOFT: Rgba = rgba_hex(0x0f8a7e, 0.08);
-const TEAL_EDGE: Rgba = rgba_hex(0x0f8a7e, 0.35);
 const GREEN: Rgba = rgba_hex(0x2f8f5b, 1.0);
 const AMBER: Rgba = rgba_hex(0xb8862c, 1.0);
 const RED: Rgba = rgba_hex(0xc0503f, 1.0);
@@ -174,6 +175,9 @@ struct AppState {
     show_detail: bool,
     unlink_armed: bool,
     agents_expanded: bool,
+    command_open: bool,
+    command_state: Option<Entity<CommandState>>,
+    search_state: Option<Entity<InputState>>,
 
     busy: bool,
     msg_kind: MessageKind,
@@ -181,7 +185,6 @@ struct AppState {
 
     list_scroll: UniformListScrollHandle,
     root_focus: FocusHandle,
-    search_focus: FocusHandle,
 }
 
 fn format_bytes(bytes: f64) -> String {
@@ -244,12 +247,14 @@ impl AppState {
             show_detail: false,
             unlink_armed: false,
             agents_expanded: false,
+            command_open: false,
+            command_state: None,
+            search_state: None,
             busy: false,
             msg_kind: MessageKind::Idle,
             msg: "启动中".into(),
             list_scroll: UniformListScrollHandle::new(),
             root_focus: cx.focus_handle(),
-            search_focus: cx.focus_handle(),
         }
     }
 
@@ -494,11 +499,25 @@ impl AppState {
     /* ------------------------------------------------------ key handling */
 
     fn on_root_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(state) = &self.search_state {
+            self.query = state.read(cx).value().to_string();
+        }
         let key = event.keystroke.key.as_str();
-        let search_focused = self.search_focus.is_focused(window);
+        let search_handle = self
+            .search_state
+            .as_ref()
+            .map(|s| s.read(cx).focus_handle(cx).clone());
+        let search_focused = search_handle
+            .as_ref()
+            .is_some_and(|h| h.is_focused(window));
         match key {
             "k" if event.keystroke.modifiers.platform => {
-                self.search_focus.focus(window, cx);
+                self.command_open = !self.command_open;
+                self.command_state = if self.command_open {
+                    Some(cx.new(|cx| CommandState::new(window, cx)))
+                } else {
+                    None
+                };
                 cx.notify();
             }
             "up" => self.move_selection(-1, cx),
@@ -525,8 +544,11 @@ impl AppState {
                 }
             }
             "escape" => {
-                if search_focused {
-                    self.query.clear();
+                if self.command_open {
+                    self.command_open = false;
+                    self.command_state = None;
+                    cx.notify();
+                } else if search_focused {
                     self.root_focus.focus(window, cx);
                     cx.notify();
                 } else if self.selected.is_some() {
@@ -537,49 +559,13 @@ impl AppState {
             }
             "/" => {
                 if !search_focused {
-                    self.search_focus.focus(window, cx);
+                    if let Some(h) = &search_handle {
+                        h.focus(window, cx);
+                    }
                     cx.notify();
                 }
             }
             _ => {}
-        }
-    }
-
-    fn on_search_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let keystroke = &event.keystroke;
-        match keystroke.key.as_str() {
-            "backspace" => {
-                self.query.pop();
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-            "escape" => {
-                self.query.clear();
-                self.root_focus.focus(window, cx);
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-            "enter" | "up" | "down" | "home" | "end" | "left" | "right" | "tab" => return,
-            _ => {}
-        }
-
-        if keystroke.modifiers.platform && keystroke.key == "v" {
-            if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                self.query.extend(text.trim().chars());
-                cx.notify();
-            }
-            cx.stop_propagation();
-            return;
-        }
-
-        if let Some(ch) = &keystroke.key_char {
-            if !keystroke.modifiers.platform && !keystroke.modifiers.control {
-                self.query.push_str(ch);
-                cx.notify();
-                cx.stop_propagation();
-            }
         }
     }
 }
@@ -797,7 +783,7 @@ impl AppState {
             })
     }
 
-    /* One agent on the icon rail: initial letter on its colour. */
+    /* One agent on the icon rail: initial letter on its colour, name below. */
     fn agent_tile(
         &self,
         id: String,
@@ -806,7 +792,7 @@ impl AppState {
         active: bool,
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-    ) -> gpui::Stateful<gpui::Div> {
+    ) -> gpui::AnyElement {
         div()
             .id(SharedString::from(id))
             .w(px(44.0))
@@ -830,11 +816,148 @@ impl AppState {
             })
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
             .child(SharedString::from(initial))
+            .into_any_element()
+    }
+
+    /* Tile + always-visible name, so the rail identifies agents at a glance. */
+    fn agent_cell(
+        &self,
+        id: String,
+        name: String,
+        initial: String,
+        color: Rgba,
+        active: bool,
+        cx: &Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> gpui::Div {
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(3.0))
+            .child(self.agent_tile(id, initial, color, active, cx, on_click))
+            .child(
+                div()
+                    .w(px(64.0))
+                    .truncate()
+                    .text_center()
+                    .text_size(px(9.0))
+                    .text_color(if active { INK } else { INK_FAINT })
+                    .child(SharedString::from(name)),
+            )
+    }
+}
+
+impl AppState {
+    /* Everything the palette offers: the five actions, then every skill. */
+    fn command_items(&self) -> Vec<CommandItem> {
+        let mut items = vec![
+            CommandItem::new()
+                .label("扫描本机技能")
+                .icon(IconName::HardDrive)
+                .keywords(vec!["scan", "扫描"]),
+            CommandItem::new()
+                .label("同步所有 agent 视图")
+                .icon(IconName::RefreshCw)
+                .keywords(vec!["sync", "同步"]),
+            CommandItem::new()
+                .label("链接（预览）")
+                .icon(IconName::Network)
+                .keywords(vec!["link", "链接"]),
+            CommandItem::new()
+                .label("清理仓库（预览）")
+                .icon(IconName::Delete)
+                .keywords(vec!["gc", "清理"]),
+            CommandItem::new()
+                .label("还原所有 agent 的原始目录")
+                .icon(IconName::Undo)
+                .keywords(vec!["unlink", "还原"]),
+        ];
+        for skill in &self.skills {
+            items.push(
+                CommandItem::new()
+                    .label(skill.name.clone())
+                    .icon(if skill.stored {
+                        IconName::CircleCheck
+                    } else {
+                        IconName::Info
+                    })
+                    .keywords(vec![skill.description.clone()]),
+            );
+        }
+        items
+    }
+
+    /* The palette: a filterable list over actions + skills. */
+    fn command_palette(&self, state: &Entity<CommandState>, cx: &Context<Self>) -> CommandPalette {
+        const ACTION_COUNT: usize = 5;
+        let view = cx.entity();
+        CommandPalette::new(state)
+            .items(self.command_items())
+            .searchable(true)
+            .filterable(true)
+            .placeholder("搜索技能或操作…")
+            .on_confirm(move |path, _window, cx| {
+                view.update(cx, |state, cx| {
+                    state.command_open = false;
+                    state.command_state = None;
+                    if path.row < ACTION_COUNT {
+                        match path.row {
+                            0 => state.run("scan", vec!["scan", "--json"], true, cx),
+                            1 => state.run("sync", vec!["sync", "--json"], true, cx),
+                            2 => {
+                                let scope = if state.scope == Scope::Own {
+                                    "own"
+                                } else {
+                                    "all"
+                                };
+                                state.run(
+                                    "link",
+                                    vec!["link", "--dry-run", "--json", "--scope", scope],
+                                    true,
+                                    cx,
+                                );
+                            }
+                            3 => state.run("gc", vec!["gc", "--dry-run", "--json"], false, cx),
+                            _ => state.run("unlink", vec!["unlink", "--json"], true, cx),
+                        }
+                    } else if let Some(entry) = state.skills.get(path.row - ACTION_COUNT) {
+                        /* Jump to the skill inside the currently visible list. */
+                        let target = entry.id.clone();
+                        let visible = state.visible_indices();
+                        let pos = visible
+                            .into_iter()
+                            .position(|vi| state.skills[vi].id == target);
+                        if let Some(pos) = pos {
+                            state.select(Some(pos), cx);
+                            state.show_detail = true;
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .on_cancel(|_window, _cx| {})
     }
 }
 
 impl gpui::Render for AppState {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        /* ⌘K opens the full-screen command palette. */
+        if self.command_open {
+            if let Some(state) = &self.command_state {
+                return div()
+                    .flex()
+                    .justify_center()
+                    .pt(px(72.0))
+                    .child(self.command_palette(state, cx));
+            }
+        }
+
+        /* The kit Input owns the text; the filter term follows it. */
+        if let Some(state) = &self.search_state {
+            self.query = state.read(cx).value().to_string();
+        }
+
         let filtered = Rc::new(self.visible_indices());
         let effective_selected = self
             .selected
@@ -973,60 +1096,23 @@ impl gpui::Render for AppState {
             .child(
                 div()
                     .id("search")
-                    .track_focus(&self.search_focus)
                     .flex_1()
                     .h(px(42.0))
                     .px_4()
                     .flex()
                     .items_center()
-                    .gap_2p5()
+                    .gap_2()
                     .rounded(px(12.0))
                     .bg(CARD)
                     .border_1()
-                    .border_color(if self.search_focus.is_focused(window) {
-                        TEAL_EDGE
-                    } else {
-                        HAIRLINE
-                    })
+                    .border_color(HAIRLINE)
                     .shadow_sm()
-                    .on_mouse_down(gpui::MouseButton::Left, {
-                        let search_focus = self.search_focus.clone();
-                        move |_e, window, _cx| search_focus.focus(window, _cx)
-                    })
-                    .on_key_down(cx.listener(Self::on_search_key))
                     .child(
                         Icon::new(IconName::Search).with_size(px(16.0)).text_color(INK_FAINT),
                     )
-                    .child(if self.query.is_empty() {
-                        div()
-                            .text_size(px(14.0))
-                            .text_color(INK_FAINT)
-                            .child(if self.search_focus.is_focused(window) {
-                                "按名称或用途搜索…▏"
-                            } else {
-                                "按名称或用途搜索…"
-                            })
-                            .into_any_element()
-                    } else {
-                        div()
-                            .text_size(px(14.0))
-                            .text_color(INK)
-                            .child(SharedString::from(format!("{}▏", self.query)))
-                            .into_any_element()
-                    })
-                    .when(self.query.is_empty(), |f| {
-                        f.child(
-                            div()
-                                .font_family("Menlo")
-                                .text_size(px(9.5))
-                                .text_color(INK_FAINT)
-                                .px_1p5()
-                                .py_0p5()
-                                .rounded_xs()
-                                .bg(HAIRLINE)
-                                .child(SharedString::from(format!("{}K", modifier_label()))),
-                        )
-                    }),
+                    .children(self.search_state.iter().map(|state| {
+                        Input::new(state).appearance(false).h_full().flex_1()
+                    })),
             )
             .child(
                 div()
@@ -1083,8 +1169,9 @@ impl gpui::Render for AppState {
             .border_color(HAIRLINE)
             .bg(CARD)
             .overflow_y_scroll();
-        rail = rail.child(self.agent_tile(
+        rail = rail.child(self.agent_cell(
             "rail-all".into(),
+            "全部".into(),
             "全".into(),
             TEAL,
             self.agent_filter.is_none(),
@@ -1104,8 +1191,9 @@ impl gpui::Render for AppState {
             let initial = label.chars().next().unwrap_or('•').to_string();
             let color = self.agent_color(&agent.id);
             let is_active = self.agent_filter.as_deref() == Some(agent.id.as_str());
-            rail = rail.child(self.agent_tile(
+            rail = rail.child(self.agent_cell(
                 format!("rail-{}", agent.id),
+                label.clone(),
                 initial,
                 color,
                 is_active,
@@ -1727,8 +1815,14 @@ fn main() {
                 },
                 cx,
                 |window, cx| {
+                    let search_state = cx.new(|cx| {
+                        let mut s = InputState::new(window, cx);
+                        s.set_placeholder("按名称或用途搜索…", window, cx);
+                        s
+                    });
                     cx.new(|cx| {
                         let mut state = AppState::new(cx);
+                        state.search_state = Some(search_state);
                         if state.cli_ok {
                             state.refresh(cx);
                         } else {
