@@ -23,7 +23,8 @@ use gpui_kit::assets::Assets;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::badge::Badge;
 use gpui_kit::component::Sizable;
-use gpui_kit::component::{Disableable, Icon, IconName};
+use gpui_kit::component::status_bar::StatusBar;
+use gpui_kit::component::{Disableable, Icon, IconName, TitleBar};
 use gpui_kit::*;
 use gpui_kit::prelude::*;
 use serde::Deserialize;
@@ -497,6 +498,10 @@ impl AppState {
         let key = event.keystroke.key.as_str();
         let search_focused = self.search_focus.is_focused(window);
         match key {
+            "k" if event.keystroke.modifiers.platform => {
+                self.search_focus.focus(window, cx);
+                cx.notify();
+            }
             "up" => self.move_selection(-1, cx),
             "down" => self.move_selection(1, cx),
             "j" if !search_focused => self.move_selection(1, cx),
@@ -582,6 +587,48 @@ impl AppState {
 
 /* -------------------------------------------------------------- view */
 
+/* 三平台字体栈：macOS 用 Avenir Next，Windows 用 Segoe UI，Linux 用 Noto Sans。 */
+fn ui_font() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Avenir Next"
+    } else if cfg!(target_os = "windows") {
+        "Segoe UI"
+    } else {
+        "Noto Sans"
+    }
+}
+
+/* 三平台“在文件管理器中显示”。 */
+fn reveal_in_file_manager(path: &str) {
+    if cfg!(target_os = "macos") {
+        let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    } else if cfg!(target_os = "windows") {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,\"{}\"", path))
+            .spawn();
+    } else {
+        let parent = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
+    }
+}
+
+/* 平台快捷键标签：macOS 是 ⌘，其他是 Ctrl。 */
+fn modifier_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "⌘"
+    } else {
+        "Ctrl"
+    }
+}
+
+/* 在品牌色上叠一层透明度，做成柔和底色。 */
+fn tint(c: Rgba) -> Rgba {
+    Rgba { r: c.r, g: c.g, b: c.b, a: 0.12 }
+}
+
 impl AppState {
     /* A soft action button, powered by the kit's Button with the brand teal. */
     fn action_button(
@@ -604,7 +651,7 @@ impl AppState {
         })
     }
 
-    /* A small pill used for the status tabs and the scope switch. */
+    /* A small filter pill used by the tabs and the scope switch. */
     fn chip(
         &self,
         id: String,
@@ -633,55 +680,15 @@ impl AppState {
             .when(!active, |c| c.hover(|s| s.bg(HAIRLINE).text_color(INK)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
             .child(SharedString::from(label))
-            .when(count.is_some(), |c| {
-                c.child(
+            .when(count.is_some(), |t| {
+                t.child(
                     div()
+                        .font_family("Menlo")
                         .text_size(px(10.0))
                         .text_color(if active { TEAL } else { INK_FAINT })
                         .child(SharedString::from(count.unwrap_or_default())),
                 )
             })
-    }
-
-    /* A compact pill for one agent: colour dot, name, count. */
-    fn agent_chip(
-        &self,
-        id: String,
-        label: String,
-        count: usize,
-        dot: Rgba,
-        active: bool,
-        cx: &Context<Self>,
-        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
-    ) -> gpui::Stateful<gpui::Div> {
-        div()
-            .id(SharedString::from(id))
-            .h_7()
-            .px_3()
-            .flex()
-            .items_center()
-            .gap_1p5()
-            .rounded_full()
-            .bg(if active { TEAL_SOFT } else { CARD })
-            .border_1()
-            .border_color(if active { TEAL_EDGE } else { HAIRLINE })
-            .shadow_xs()
-            .when(!active, |c| c.hover(|s| s.bg(CARD_HOVER)))
-            .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
-            .child(div().size(px(7.0)).rounded_full().bg(dot))
-            .child(
-                div()
-                    .text_size(px(11.5))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(if active { TEAL } else { INK })
-                    .child(SharedString::from(label)),
-            )
-            .child(
-                div()
-                    .text_size(px(10.0))
-                    .text_color(INK_FAINT)
-                    .child(SharedString::from(count.to_string())),
-            )
     }
 
     /* The brand mark: one Lucide star. */
@@ -694,6 +701,31 @@ impl AppState {
             .text_size(px(11.0))
             .text_color(INK_FAINT)
             .child(text)
+    }
+
+    /* A label/value line inside the inspector. */
+    fn meta_line(&self, label: &'static str, value: String) -> gpui::Div {
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .py(px(3.0))
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(INK_MID)
+                    .child(label),
+            )
+            .child(
+                div()
+                    .font_family("Menlo")
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(10.5))
+                    .text_color(INK)
+                    .child(SharedString::from(value)),
+            )
     }
 
     /* A path row with Copy / Show actions. */
@@ -756,14 +788,49 @@ impl AppState {
                         .on_click({
                             let p = path.to_string();
                             cx.listener(move |state, _e, _w, cx| {
-                                let _ = std::process::Command::new("open").arg("-R").arg(&p).spawn();
-                                state.set_message(MessageKind::Ok, "已在 Finder 中显示");
+                                reveal_in_file_manager(&p);
+                                state.set_message(MessageKind::Ok, "已在文件管理器中显示");
                                 cx.notify();
                             })
                         })
                         .child("显示"),
                 )
             })
+    }
+
+    /* One agent on the icon rail: initial letter on its colour. */
+    fn agent_tile(
+        &self,
+        id: String,
+        initial: String,
+        color: Rgba,
+        active: bool,
+        cx: &Context<Self>,
+        on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(SharedString::from(id))
+            .w(px(44.0))
+            .h(px(44.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(14.0))
+            .border_2()
+            .border_color(if active { TEAL } else { TRANSPARENT })
+            .bg(if active { color } else { tint(color) })
+            .text_color(if active {
+                rgba_hex(0xffffff, 1.0)
+            } else {
+                color
+            })
+            .text_size(px(14.0))
+            .font_weight(FontWeight::MEDIUM)
+            .when(!active, |t| {
+                t.hover(|s| s.bg(tint(color)).border_color(rgba_hex(0x0f8a7e, 0.25)))
+            })
+            .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
+            .child(SharedString::from(initial))
     }
 }
 
@@ -775,198 +842,251 @@ impl gpui::Render for AppState {
             .filter(|i| *i < filtered.len())
             .filter(|_| self.show_detail);
 
-        /* ==================================================== header */
-        let header = div()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2p5()
-                    .child(self.brand_mark())
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .text_size(px(19.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(INK)
-                                    .child("StarTide"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(10.5))
-                                    .text_color(INK_FAINT)
-                                    .child(SharedString::from(format!(
-                                        "{} 个技能 · {} 个 agent · 共享 {}",
-                                        self.skills.len(),
-                                        self.agents.len(),
-                                        format_bytes(self.store_bytes)
-                                    ))),
-                            ),
-                    ),
-            )
-            .child(div().flex_1())
-            .child(
-                div()
-                    .max_w(px(260.0))
-                    .truncate()
-                    .text_size(px(11.0))
-                    .text_color(match self.msg_kind {
-                        MessageKind::Idle => INK_FAINT,
-                        MessageKind::Busy => INK_FAINT,
-                        MessageKind::Ok => GREEN,
-                        MessageKind::Err => RED,
-                    })
-                    .child(self.msg.clone()),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(self.action_button(
-                        "scan",
-                        "扫描",
-                        IconName::HardDrive,
-                        |b| b.secondary(),
-                        cx,
-                        |state, cx| state.run("scan", vec!["scan", "--json"], true, cx),
-                    ))
-                    .child(self.action_button(
-                        "sync",
-                        "同步",
-                        IconName::RefreshCw,
-                        |b| b.secondary(),
-                        cx,
-                        |state, cx| state.run("sync", vec!["sync", "--json"], true, cx),
-                    ))
-                    .child(self.action_button(
-                        "link",
-                        "链接",
-                        IconName::Network,
-                        |b| b.custom(ButtonCustomVariant::new(cx).color(Hsla::from(TEAL)).foreground(Hsla::from(rgba_hex(0xffffff, 1.0)))),
-                        cx,
-                        |state, cx| {
-                            let scope = if state.scope == Scope::Own { "own" } else { "all" };
-                            state.run(
-                                "link",
-                                vec!["link", "--dry-run", "--json", "--scope", scope],
-                                true,
-                                cx,
-                            );
-                        },
-                    ))
-                    .child(self.action_button(
-                        "gc",
-                        "清理",
-                        IconName::Delete,
-                        |b| b.secondary(),
-                        cx,
-                        |state, cx| state.run("gc", vec!["gc", "--dry-run", "--json"], false, cx),
-                    ))
-                    .child(self.action_button(
-                        "unlink",
-                        "还原",
-                        IconName::Undo,
-                        |b| b.secondary(),
-                        cx,
-                        |state, cx| {
-                        if state.unlink_armed {
-                            state.run("unlink", vec!["unlink", "--json"], true, cx);
-                        } else {
-                            state.unlink_armed = true;
-                            state.set_message(
-                                MessageKind::Err,
-                                "再点一次「还原」，把所有 agent 的原始目录放回去",
-                            );
-                            cx.notify();
-                        }
-                    })),
-            );
-
-        /* ===================================================== search */
-        let search = div()
-            .id("search")
-            .track_focus(&self.search_focus)
-            .h(px(46.0))
-            .px_4()
-            .flex()
-            .items_center()
-            .gap_2p5()
-            .rounded(px(14.0))
-            .bg(CARD)
-            .border_1()
-            .border_color(if self.search_focus.is_focused(window) {
-                TEAL_EDGE
-            } else {
-                HAIRLINE
-            })
-            .shadow_sm()
-            .on_mouse_down(gpui::MouseButton::Left, {
-                let search_focus = self.search_focus.clone();
-                move |_e, window, _cx| search_focus.focus(window, _cx)
-            })
-            .on_key_down(cx.listener(Self::on_search_key))
-            .child(Icon::new(IconName::Search).with_size(px(16.0)).text_color(INK_FAINT))
-            .child(if self.query.is_empty() {
-                div()
-                    .text_size(px(14.5))
-                    .text_color(INK_FAINT)
-                    .child(if self.search_focus.is_focused(window) {
-                        "按名称或用途搜索…▏"
-                    } else {
-                        "按名称或用途搜索…"
-                    })
-                    .into_any_element()
-            } else {
-                div()
-                    .text_size(px(14.5))
-                    .text_color(INK)
-                    .child(SharedString::from(format!("{}▏", self.query)))
-                    .into_any_element()
-            });
-
-        /* ==================================================== agents */
-        let mut shelf = div().flex().flex_col().gap_2().child(
+        /* ============================================== title bar */
+        let titlebar = TitleBar::new().child(
             div()
                 .flex()
                 .items_center()
-                .gap_2()
-                .child(self.section_label("智能体"))
+                .gap_3()
+                .h(px(46.0))
+                .pl(if cfg!(target_os = "macos") { px(80.0) } else { px(16.0) })
+                .pr(px(14.0))
+                .child(self.brand_mark())
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(px(15.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(INK)
+                                .child("StarTide"),
+                        )
+                        .child(
+                            div()
+                                .font_family("Menlo")
+                                .text_size(px(9.0))
+                                .text_color(INK_FAINT)
+                                .child(SharedString::from(format!(
+                                    "{} skills · {} agents · {} shared",
+                                    self.skills.len(),
+                                    self.agents.len(),
+                                    format_bytes(self.store_bytes)
+                                ))),
+                        ),
+                )
                 .child(div().flex_1())
-                .child(self.chip(
-                    "scope".into(),
-                    if self.scope == Scope::Own {
-                        "范围 own".to_string()
-                    } else {
-                        "范围 all".to_string()
-                    },
-                    None,
-                    self.scope == Scope::All,
-                    cx,
-                    |state, cx| {
-                        state.scope = if state.scope == Scope::Own {
-                            Scope::All
-                        } else {
-                            Scope::Own
-                        };
-                        cx.notify();
-                    },
-                )),
+                .child(
+                    div()
+                        .max_w(px(240.0))
+                        .truncate()
+                        .text_size(px(10.5))
+                        .text_color(match self.msg_kind {
+                            MessageKind::Idle => INK_MID,
+                            MessageKind::Busy => INK_FAINT,
+                            MessageKind::Ok => GREEN,
+                            MessageKind::Err => RED,
+                        })
+                        .child(self.msg.clone()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(self.action_button(
+                            "scan",
+                            "扫描",
+                            IconName::HardDrive,
+                            |b| b.secondary(),
+                            cx,
+                            |state, cx| state.run("scan", vec!["scan", "--json"], true, cx),
+                        ))
+                        .child(self.action_button(
+                            "sync",
+                            "同步",
+                            IconName::RefreshCw,
+                            |b| b.secondary(),
+                            cx,
+                            |state, cx| state.run("sync", vec!["sync", "--json"], true, cx),
+                        ))
+                        .child(self.action_button(
+                            "link",
+                            "链接",
+                            IconName::Network,
+                            |b| b.custom(ButtonCustomVariant::new(cx)
+                                .color(Hsla::from(TEAL))
+                                .foreground(Hsla::from(rgba_hex(0xffffff, 1.0)))),
+                            cx,
+                            |state, cx| {
+                                let scope = if state.scope == Scope::Own { "own" } else { "all" };
+                                state.run(
+                                    "link",
+                                    vec!["link", "--dry-run", "--json", "--scope", scope],
+                                    true,
+                                    cx,
+                                );
+                            },
+                        ))
+                        .child(self.action_button(
+                            "gc",
+                            "清理",
+                            IconName::Delete,
+                            |b| b.secondary(),
+                            cx,
+                            |state, cx| state.run("gc", vec!["gc", "--dry-run", "--json"], false, cx),
+                        ))
+                        .child(self.action_button(
+                            "unlink",
+                            "还原",
+                            IconName::Undo,
+                            |b| b.secondary(),
+                            cx,
+                            |state, cx| {
+                                if state.unlink_armed {
+                                    state.run("unlink", vec!["unlink", "--json"], true, cx);
+                                } else {
+                                    state.unlink_armed = true;
+                                    state.set_message(
+                                        MessageKind::Err,
+                                        "再点一次「还原」以恢复所有 agent 的原始技能目录",
+                                    );
+                                    cx.notify();
+                                }
+                            },
+                        )),
+                ),
         );
 
-        /* Compact pills, one row at rest; long agent lists fold behind a
-         * counter and expand into a short scrollable block. */
-        let mut chips_row = div().flex().flex_wrap().items_center().gap_1p5();
-        chips_row = chips_row.child(self.agent_chip(
-            "agent-all".into(),
-            "全部".into(),
-            filtered.len(),
+        /* ================================================= search row */
+        let stored_count = self.skills.iter().filter(|e| e.stored).count();
+        let known_count = self.skills.len().saturating_sub(stored_count);
+
+        let search_row = div()
+            .flex()
+            .items_center()
+            .gap_4()
+            .px(px(20.0))
+            .h(px(54.0))
+            .border_b_1()
+            .border_color(HAIRLINE)
+            .child(
+                div()
+                    .id("search")
+                    .track_focus(&self.search_focus)
+                    .flex_1()
+                    .h(px(42.0))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .gap_2p5()
+                    .rounded(px(12.0))
+                    .bg(CARD)
+                    .border_1()
+                    .border_color(if self.search_focus.is_focused(window) {
+                        TEAL_EDGE
+                    } else {
+                        HAIRLINE
+                    })
+                    .shadow_sm()
+                    .on_mouse_down(gpui::MouseButton::Left, {
+                        let search_focus = self.search_focus.clone();
+                        move |_e, window, _cx| search_focus.focus(window, _cx)
+                    })
+                    .on_key_down(cx.listener(Self::on_search_key))
+                    .child(
+                        Icon::new(IconName::Search).with_size(px(16.0)).text_color(INK_FAINT),
+                    )
+                    .child(if self.query.is_empty() {
+                        div()
+                            .text_size(px(14.0))
+                            .text_color(INK_FAINT)
+                            .child(if self.search_focus.is_focused(window) {
+                                "按名称或用途搜索…▏"
+                            } else {
+                                "按名称或用途搜索…"
+                            })
+                            .into_any_element()
+                    } else {
+                        div()
+                            .text_size(px(14.0))
+                            .text_color(INK)
+                            .child(SharedString::from(format!("{}▏", self.query)))
+                            .into_any_element()
+                    })
+                    .when(self.query.is_empty(), |f| {
+                        f.child(
+                            div()
+                                .font_family("Menlo")
+                                .text_size(px(9.5))
+                                .text_color(INK_FAINT)
+                                .px_1p5()
+                                .py_0p5()
+                                .rounded_xs()
+                                .bg(HAIRLINE)
+                                .child(SharedString::from(format!("{}K", modifier_label()))),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(INK_FAINT)
+                            .child("范围"),
+                    )
+                    .child(self.chip(
+                        "scope-own".into(),
+                        "own".into(),
+                        None,
+                        self.scope == Scope::Own,
+                        cx,
+                        |state, cx| {
+                            state.scope = Scope::Own;
+                            cx.notify();
+                        },
+                    ))
+                    .child(self.chip(
+                        "scope-all".into(),
+                        "all".into(),
+                        None,
+                        self.scope == Scope::All,
+                        cx,
+                        |state, cx| {
+                            state.scope = Scope::All;
+                            cx.notify();
+                        },
+                    )),
+            );
+
+        /* =================================================== icon rail */
+        let fold_at = 10usize;
+        let shown = if self.agents_expanded {
+            self.agents.len()
+        } else {
+            self.agents.len().min(fold_at)
+        };
+        let mut rail = div()
+            .id("agent-rail")
+            .w(px(68.0))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(8.0))
+            .py(px(12.0))
+            .border_r_1()
+            .border_color(HAIRLINE)
+            .bg(CARD)
+            .overflow_y_scroll();
+        rail = rail.child(self.agent_tile(
+            "rail-all".into(),
+            "全".into(),
             TEAL,
             self.agent_filter.is_none(),
             cx,
@@ -976,28 +1096,18 @@ impl gpui::Render for AppState {
                 cx.notify();
             },
         ));
-        let fold_at = 8usize;
-        let shown = if self.agents_expanded {
-            self.agents.len()
-        } else {
-            self.agents.len().min(fold_at)
-        };
         for agent in self.agents.iter().take(shown) {
             let label = if agent.label.is_empty() {
                 agent.id.clone()
             } else {
                 agent.label.clone()
             };
-            let count = filtered
-                .iter()
-                .filter(|i| self.skills[**i].agents.iter().any(|a| a == &agent.id))
-                .count();
+            let initial = label.chars().next().unwrap_or('•').to_string();
             let color = self.agent_color(&agent.id);
             let is_active = self.agent_filter.as_deref() == Some(agent.id.as_str());
-            chips_row = chips_row.child(self.agent_chip(
-                format!("agent-{}", agent.id),
-                label,
-                count,
+            rail = rail.child(self.agent_tile(
+                format!("rail-{}", agent.id),
+                initial,
                 color,
                 is_active,
                 cx,
@@ -1017,45 +1127,98 @@ impl gpui::Render for AppState {
             ));
         }
         if self.agents.len() > fold_at {
-            let label = if self.agents_expanded {
-                "收起".to_string()
-            } else {
-                format!("还有 {} 个", self.agents.len() - fold_at)
-            };
-            chips_row = chips_row.child(
+            let more = self.agents.len() - shown;
+            rail = rail.child(self.agent_tile(
+                "rail-more".into(),
+                format!("+{}", more),
+                INK_MID,
+                false,
+                cx,
+                |state, cx| {
+                    state.agents_expanded = !state.agents_expanded;
+                    cx.notify();
+                },
+            ));
+        }
+
+        /* ================================================= filter row */
+        let active_label = match &self.agent_filter {
+            Some(id) => self.agent_label(id),
+            None => "全部 agent".to_string(),
+        };
+        let filter_row = div()
+            .flex()
+            .items_center()
+            .gap_3()
+            .px(px(20.0))
+            .h(px(44.0))
+            .child(
                 div()
-                    .id("agents-toggle")
-                    .h_7()
-                    .px_3()
-                    .flex()
-                    .items_center()
-                    .rounded_full()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(INK)
+                    .child("技能"),
+            )
+            .child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(INK_FAINT)
+                    .child(SharedString::from(format!(
+                        "{}/{}",
+                        filtered.len(),
+                        self.skills.len()
+                    ))),
+            )
+            .child(div().w(px(1.0))).h(px(16.0)).bg(HAIRLINE)
+            .child(
+                div()
                     .text_size(px(11.0))
                     .text_color(INK_MID)
-                    .hover(|s| s.bg(HAIRLINE).text_color(INK))
-                    .on_click(cx.listener(|state, _e, _w, cx| {
-                        state.agents_expanded = !state.agents_expanded;
-                        cx.notify();
-                    }))
-                    .child(SharedString::from(label)),
-            );
-        }
-        let shelf_body: gpui::AnyElement = if self.agents_expanded {
-            div()
-                .id("agent-shelf")
-                .max_h(px(156.0))
-                .overflow_y_scroll()
-                .child(chips_row)
-                .into_any_element()
-        } else {
-            chips_row.into_any_element()
-        };
-        shelf = shelf.child(shelf_body);
+                    .child(SharedString::from(format!(
+                        "当前：{} · {} 个技能",
+                        active_label,
+                        filtered.len()
+                    ))),
+            )
+            .child(div().flex_1())
+            .child(self.chip(
+                "tab-all".into(),
+                "全部".into(),
+                Some(self.skills.len().to_string()),
+                self.status_tab == StatusTab::All,
+                cx,
+                |state, cx| {
+                    state.status_tab = StatusTab::All;
+                    state.selected = None;
+                    cx.notify();
+                },
+            ))
+            .child(self.chip(
+                "tab-stored".into(),
+                "已入库".into(),
+                Some(stored_count.to_string()),
+                self.status_tab == StatusTab::Stored,
+                cx,
+                |state, cx| {
+                    state.status_tab = StatusTab::Stored;
+                    state.selected = None;
+                    cx.notify();
+                },
+            ))
+            .child(self.chip(
+                "tab-known".into(),
+                "仅目录".into(),
+                Some(known_count.to_string()),
+                self.status_tab == StatusTab::Known,
+                cx,
+                |state, cx| {
+                    state.status_tab = StatusTab::Known;
+                    state.selected = None;
+                    cx.notify();
+                },
+            ));
 
-        /* ===================================================== skills */
-        let stored_count = self.skills.iter().filter(|e| e.stored).count();
-        let known_count = self.skills.len().saturating_sub(stored_count);
-
+        /* ========================================================= list */
         let list: gpui::AnyElement = if filtered.is_empty() {
             div()
                 .flex_1()
@@ -1063,16 +1226,17 @@ impl gpui::Render for AppState {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .gap_2()
+                .gap_3()
+                .child(Icon::new(IconName::Inbox).with_size(px(28.0)).text_color(INK_FAINT))
                 .child(
                     div()
                         .text_size(px(15.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(INK_MID)
                         .child(if self.skills.is_empty() {
-                            "这里还空着"
+                            "目录还是空的"
                         } else {
-                            "没有匹配结果"
+                            "没有匹配的技能"
                         }),
                 )
                 .child(
@@ -1080,11 +1244,23 @@ impl gpui::Render for AppState {
                         .text_size(px(11.5))
                         .text_color(INK_FAINT)
                         .child(if self.skills.is_empty() {
-                            "点「扫描」发现本机技能"
+                            "点「扫描」索引这台机器上的所有技能"
                         } else {
-                            "换个搜索词或筛选试试"
+                            "换个搜索词或筛选条件试试"
                         }),
                 )
+                .when(self.skills.is_empty(), |c| {
+                    c.child(self.action_button(
+                        "empty-scan",
+                        "扫描本机",
+                        IconName::HardDrive,
+                        |b| b.custom(ButtonCustomVariant::new(cx)
+                            .color(Hsla::from(TEAL))
+                            .foreground(Hsla::from(rgba_hex(0xffffff, 1.0)))),
+                        cx,
+                        |state, cx| state.run("scan", vec!["scan", "--json"], true, cx),
+                    ))
+                })
                 .into_any_element()
         } else {
             uniform_list(
@@ -1106,118 +1282,53 @@ impl gpui::Render for AppState {
             .into_any_element()
         };
 
-        let skills_card = div()
+        let centre = div()
             .flex()
             .flex_col()
             .flex_1()
-            .min_h_0()
-            .rounded(px(16.0))
+            .min_w_0()
             .bg(CARD)
             .border_1()
             .border_color(HAIRLINE)
-            .shadow_md()
+            .shadow_sm()
+            .rounded(px(16.0))
             .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .h(px(50.0))
-                    .border_b_1()
-                    .border_color(HAIRLINE)
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(INK)
-                            .child("技能"),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(10.5))
-                            .text_color(INK_FAINT)
-                            .child(SharedString::from(format!(
-                                "{}/{}",
-                                filtered.len(),
-                                self.skills.len()
-                            ))),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(self.chip(
-                                "tab-all".into(),
-                                "全部".into(),
-                                Some(self.skills.len().to_string()),
-                                self.status_tab == StatusTab::All,
-                                cx,
-                                |state, cx| {
-                                    state.status_tab = StatusTab::All;
-                                    state.selected = None;
-                                    cx.notify();
-                                },
-                            ))
-                            .child(self.chip(
-                                "tab-stored".into(),
-                                "已入库".into(),
-                                Some(stored_count.to_string()),
-                                self.status_tab == StatusTab::Stored,
-                                cx,
-                                |state, cx| {
-                                    state.status_tab = StatusTab::Stored;
-                                    state.selected = None;
-                                    cx.notify();
-                                },
-                            ))
-                            .child(self.chip(
-                                "tab-known".into(),
-                                "仅目录".into(),
-                                Some(known_count.to_string()),
-                                self.status_tab == StatusTab::Known,
-                                cx,
-                                |state, cx| {
-                                    state.status_tab = StatusTab::Known;
-                                    state.selected = None;
-                                    cx.notify();
-                                },
-                            )),
-                    ),
-            )
+            .child(filter_row)
             .child(list);
 
-        /* ===================================================== detail */
-        let mut detail_column: gpui::AnyElement = div()
+        /* ================================================== inspector */
+        let mut inspector_inner = div()
             .flex()
-            .flex_col()
             .items_center()
-            .justify_center()
-            .gap_2()
-            .w(px(DETAIL_WIDTH))
-            .flex_none()
-            .h_full()
-            .rounded(px(16.0))
-            .bg(CARD)
-            .border_1()
-            .border_color(HAIRLINE)
-            .shadow_md()
-            .child(self.brand_mark())
+            .justify_between()
             .child(
                 div()
-                    .text_size(px(14.0))
-                    .font_weight(FontWeight::MEDIUM)
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(INK)
+                    .child("详情"),
+            )
+            .child(
+                div()
+                    .id("collapse-detail")
+                    .w(px(26.0))
+                    .h(px(26.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_md()
                     .text_color(INK_MID)
-                    .child("选择一个技能"),
-            )
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(INK_FAINT)
-                    .child("Enter 打开 · Esc 关闭"),
-            )
+                    .hover(|s| s.bg(HAIRLINE).text_color(INK))
+                    .on_click(cx.listener(|state, _e, _w, cx| {
+                        state.show_detail = false;
+                        cx.notify();
+                    }))
+                    .child(Icon::new(IconName::ChevronRight).with_size(px(14.0))),
+            );
+
+        let mut inspector: gpui::AnyElement = div()
+            .w(px(0.0))
+            .flex_none()
             .into_any_element();
 
         if let (true, Some(ix)) = (self.show_detail, effective_selected) {
@@ -1228,63 +1339,27 @@ impl gpui::Render for AppState {
                     String::new()
                 };
 
-                let mut detail = div()
-                    .id("detail")
-                    .flex()
-                    .flex_col()
-                    .w(px(DETAIL_WIDTH))
-                    .flex_none()
-                    .h_full()
-                    .overflow_y_scroll()
-                    .rounded(px(16.0))
-                    .bg(CARD)
-                    .border_1()
-                    .border_color(HAIRLINE)
-                    .shadow_md()
-                    .px(px(22.0))
-                    .pt(px(20.0))
-                    .pb(px(24.0))
-                    .gap_4()
+                inspector_inner = inspector_inner
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .gap_2()
                             .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        Badge::new()
-                                            .dot()
-                                            .color(if entry.stored {
-                                                Hsla::from(TEAL)
-                                            } else {
-                                                Hsla::from(AMBER)
-                                            })
-                                            .child(if entry.stored {
-                                                "已入库"
-                                            } else {
-                                                "仅目录"
-                                            }),
-                                    )
-                                    .child(div().flex_1())
-                                    .child(
-                                        div()
-                                            .font_family("Menlo")
-                                            .text_size(px(9.5))
-                                            .text_color(INK_FAINT)
-                                            .child(SharedString::from(
-                                                entry.id.chars().take(8).collect::<String>(),
-                                            )),
-                                    ),
+                                Badge::new()
+                                    .dot()
+                                    .color(if entry.stored {
+                                        Hsla::from(TEAL)
+                                    } else {
+                                        Hsla::from(AMBER)
+                                    })
+                                    .child(if entry.stored { "已入库" } else { "仅目录" }),
                             )
                             .child(
                                 div()
-                                    .text_size(px(19.0))
-                                    .line_height(px(25.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .font_family("Georgia")
+                                    .text_size(px(22.0))
+                                    .line_height(px(28.0))
                                     .text_color(INK)
                                     .child(SharedString::from(entry.name.clone())),
                             )
@@ -1299,120 +1374,183 @@ impl gpui::Render for AppState {
                                         entry.description.clone()
                                     })),
                             ),
-                    );
-
-                /* Who can see it */
-                let mut pills = div().flex().flex_wrap().gap_1p5();
-                if entry.agents.is_empty() {
-                    pills = pills.child(
+                    )
+                    .child(div().h(px(1.0)).w_full().bg(HAIRLINE))
+                    .child(
                         div()
-                            .text_size(px(11.0))
-                            .text_color(INK_FAINT)
-                            .child("仅范围 all 时可见"),
-                    );
-                } else {
-                    for id in &entry.agents {
-                        let color = self.agent_color(id);
-                        pills = pills.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1p5()
-                                .px_2()
-                                .py_0p5()
-                                .rounded_full()
-                                .bg(CREAM)
-                                .child(div().size(px(6.0)).rounded_full().bg(color))
-                                .child(
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(self.section_label("元信息"))
+                            .child(self.meta_line("大小", format_bytes(entry.size)))
+                            .child(self.meta_line(
+                                "哈希",
+                                entry.id.chars().take(16).collect::<String>(),
+                            ))
+                            .child(self.meta_line("副本数", entry.sources.len().to_string())),
+                    )
+                    .child({
+                        let mut pills = div().flex().flex_wrap().gap_1p5();
+                        if entry.agents.is_empty() {
+                            pills = pills.child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(INK_FAINT)
+                                    .child("仅范围 all 时可见"),
+                            );
+                        } else {
+                            for id in &entry.agents {
+                                let color = self.agent_color(id);
+                                pills = pills.child(
                                     div()
-                                        .text_size(px(11.0))
-                                        .text_color(INK)
-                                        .child(SharedString::from(self.agent_label(id))),
-                                ),
-                        );
-                    }
-                }
-                detail = detail.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(self.section_label("哪些 agent 能看到"))
-                        .child(pills),
-                );
+                                        .flex()
+                                        .items_center()
+                                        .gap_1p5()
+                                        .px_2()
+                                        .py(px(3.0))
+                                        .rounded_full()
+                                        .bg(CREAM)
+                                        .child(div().size(px(6.0)).rounded_full().bg(color))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(INK)
+                                                .child(SharedString::from(self.agent_label(id))),
+                                        ),
+                                );
+                            }
+                        }
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(self.section_label("哪些 agent 能看到"))
+                            .child(pills)
+                    })
+                    .child({
+                        let mut sources_block = div()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .child(self.section_label("来源位置"));
+                        for (i, source) in entry.sources.iter().take(4).enumerate() {
+                            sources_block = sources_block.child(self.path_row(
+                                format!("src-{}", i),
+                                source,
+                                "未记录",
+                                i == 0,
+                                cx,
+                            ));
+                        }
+                        if entry.sources.len() > 4 {
+                            sources_block = sources_block.child(
+                                div()
+                                    .pt_1()
+                                    .text_size(px(10.0))
+                                    .text_color(INK_FAINT)
+                                    .child(SharedString::from(format!(
+                                        "还有 {} 个位置",
+                                        entry.sources.len() - 4
+                                    ))),
+                            );
+                        }
+                        sources_block
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1p5()
+                            .child(self.section_label("仓库位置"))
+                            .child(self.path_row(
+                                "store".into(),
+                                &unit_path,
+                                "尚未复制进仓库",
+                                true,
+                                cx,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .pt_1()
+                            .child(
+                                div()
+                                    .text_size(px(10.5))
+                                    .text_color(INK_FAINT)
+                                    .child(SharedString::from(format_bytes(entry.size))),
+                            )
+                            .child(div().w(px(3.0)).rounded_full().bg(INK_FAINT))
+                            .child(
+                                div()
+                                    .text_size(px(10.5))
+                                    .text_color(INK_FAINT)
+                                    .child(SharedString::from(format!(
+                                        "磁盘上 {} 份副本",
+                                        entry.sources.len()
+                                    ))),
+                            ),
+                    );
 
-                /* Where it lives */
-                let mut sources_block = div()
+                inspector = div()
+                    .id("inspector")
                     .flex()
                     .flex_col()
-                    .gap_1p5()
-                    .child(self.section_label("来源位置"));
-                for (i, source) in entry.sources.iter().take(4).enumerate() {
-                    sources_block = sources_block.child(self.path_row(
-                        format!("src-{}", i),
-                        source,
-                        "未记录",
-                        i == 0,
-                        cx,
-                    ));
-                }
-                if entry.sources.len() > 4 {
-                    sources_block = sources_block.child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(INK_FAINT)
-                            .child(SharedString::from(format!(
-                                "还有 {} 个位置",
-                                entry.sources.len() - 4
-                            ))),
-                    );
-                }
-                detail = detail.child(sources_block);
-
-                /* In the store */
-                detail = detail.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1p5()
-                        .child(self.section_label("仓库位置"))
-                        .child(self.path_row(
-                            "store".into(),
-                            &unit_path,
-                            "尚未复制进仓库",
-                            true,
-                            cx,
-                        )),
-                );
-
-                /* Meta footer */
-                detail = detail.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .pt_1()
-                        .child(
-                            div()
-                                .text_size(px(10.5))
-                                .text_color(INK_FAINT)
-                                .child(SharedString::from(format_bytes(entry.size))),
-                        )
-                        .child(div().size(px(3.0)).rounded_full().bg(INK_FAINT))
-                        .child(
-                            div()
-                                .text_size(px(10.5))
-                                .text_color(INK_FAINT)
-                                .child(SharedString::from(format!(
-                                    "磁盘上 {} 份副本",
-                                    entry.sources.len()
-                                ))),
-                        ),
-                );
-
-                detail_column = detail.into_any_element();
+                    .gap_4()
+                    .w(px(DETAIL_WIDTH))
+                    .flex_none()
+                    .h_full()
+                    .overflow_y_scroll()
+                    .rounded(px(16.0))
+                    .bg(CARD)
+                    .border_1()
+                    .border_color(HAIRLINE)
+                    .shadow_md()
+                    .px(px(22.0))
+                    .pt(px(16.0))
+                    .pb(px(24.0))
+                    .child(inspector_inner)
+                    .into_any_element();
             }
         }
+
+        /* ================================================== status bar */
+        let status_bar = StatusBar::new()
+            .left(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .size(px(6.0))
+                            .rounded_full()
+                            .bg(if self.cli_ok { GREEN } else { RED }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .text_color(INK_MID)
+                            .child(SharedString::from(format!(
+                                "引擎 skillctl · {} agents · {} units",
+                                self.agents.len(),
+                                self.store_units
+                            ))),
+                    ),
+            )
+            .right(
+                div()
+                    .font_family("Menlo")
+                    .text_size(px(10.0))
+                    .text_color(INK_FAINT)
+                    .child(SharedString::from(format!(
+                        "{} 范围 · {}K 搜索",
+                        if self.scope == Scope::Own { "own" } else { "all" },
+                        modifier_label()
+                    ))),
+            );
 
         /* ======================================================= root */
         div()
@@ -1422,22 +1560,24 @@ impl gpui::Render for AppState {
             .size_full()
             .bg(CREAM)
             .text_color(INK)
-            .font_family("Avenir Next")
+            .font_family(ui_font())
             .on_key_down(cx.listener(Self::on_root_key))
-            .p(px(PAD))
-            .gap_3()
-            .child(header)
-            .child(search)
-            .child(shelf)
+            .child(titlebar)
+            .child(search_row)
             .child(
                 div()
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .gap_3()
-                    .child(skills_card)
-                    .child(detail_column),
+                    .gap(px(12.0))
+                    .px(px(16.0))
+                    .pt(px(12.0))
+                    .pb(px(12.0))
+                    .child(rail)
+                    .child(centre)
+                    .child(inspector),
             )
+            .child(status_bar)
     }
 }
 
@@ -1461,7 +1601,7 @@ impl AppState {
             .collect()
     }
 
-    /* One soft row inside the skills card. */
+    /* One entry of the index: name, purpose, attribution, status. */
     fn row(
         &self,
         ix: usize,
@@ -1525,7 +1665,7 @@ impl AppState {
                     .flex()
                     .items_center()
                     .gap_4()
-                    .pl(px(15.0))
+                    .pl(px(14.0))
                     .pr_4()
                     .child(
                         div()
@@ -1539,7 +1679,7 @@ impl AppState {
                                     .truncate()
                                     .text_size(px(14.5))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(iftx(selected))
+                                    .text_color(if selected { TEAL } else { INK })
                                     .child(SharedString::from(entry.name.clone())),
                             )
                             .child(
@@ -1553,7 +1693,7 @@ impl AppState {
                     .child(dots)
                     .child(
                         div()
-                            .w(px(64.0))
+                            .w(px(56.0))
                             .flex_none()
                             .font_family("Menlo")
                             .text_size(px(9.5))
@@ -1561,23 +1701,17 @@ impl AppState {
                             .child(SharedString::from(format_bytes(entry.size))),
                     )
                     .child(
-                        div()
-                            .w(px(64.0))
-                            .flex_none()
-                            .text_size(px(10.0))
-                            .text_color(if entry.stored { GREEN } else { AMBER })
+                        Badge::new()
+                            .dot()
+                            .color(if entry.stored {
+                                Hsla::from(TEAL)
+                            } else {
+                                Hsla::from(AMBER)
+                            })
                             .child(if entry.stored { "已入库" } else { "仅目录" }),
                     ),
             )
             .into_any_element()
-    }
-}
-
-fn iftx(selected: bool) -> Rgba {
-    if selected {
-        TEAL
-    } else {
-        INK
     }
 }
 
@@ -1590,11 +1724,7 @@ fn main() {
             open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("StarTide".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
+                    ..TitleBar::window_options()
                 },
                 cx,
                 |window, cx| {
