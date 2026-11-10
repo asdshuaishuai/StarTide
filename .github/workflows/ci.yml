@@ -37,12 +37,12 @@ jobs:
           SKILLCTL_BIN: ${{ runner.os == 'Windows' && 'build/Release/skillctl.exe' || 'build/skillctl' }}
         run: bash tests/e2e.sh
 
-  gui:
-    name: gui (macOS)
+  app:
+    name: app (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Build StarTide
-        working-directory: gui
+      - name: Build StarTide (Tauri)
+        working-directory: app
         run: cargo build --release
