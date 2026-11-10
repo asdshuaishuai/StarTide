@@ -42,14 +42,15 @@ const fn rgba_hex(hex: u32, alpha: f32) -> Rgba {
     }
 }
 
-const BG_TITLE: Rgba = rgba_hex(0x3c3c3c, 1.0);
-const BG_SIDE: Rgba = rgba_hex(0x252526, 1.0);
-const BG_EDIT: Rgba = rgba_hex(0x1e1e1e, 1.0);
-const BG_INPUT: Rgba = rgba_hex(0x3c3c3c, 1.0);
-const BG_CARD: Rgba = rgba_hex(0x252526, 1.0);
-const BG_HOVER: Rgba = rgba_hex(0x2a2d2e, 1.0);
-const BG_SEL: Rgba = rgba_hex(0x094771, 1.0);
-const BG_BADGE: Rgba = rgba_hex(0x4d4d4d, 1.0);
+/* macOS 毛玻璃：面板半透明，模糊材质从窗口后透出。 */
+const BG_TITLE: Rgba = rgba_hex(0x1a1a1c, 0.72);
+const BG_SIDE: Rgba = rgba_hex(0x202023, 0.66);
+const BG_EDIT: Rgba = rgba_hex(0x232326, 0.80);
+const BG_INPUT: Rgba = rgba_hex(0x2c2c30, 0.85);
+const BG_CARD: Rgba = rgba_hex(0x2a2a2e, 0.62);
+const BG_HOVER: Rgba = rgba_hex(0x36363a, 0.55);
+const BG_SEL: Rgba = rgba_hex(0x0a4d6e, 0.55);
+const BG_BADGE: Rgba = rgba_hex(0x4d4d4d, 0.55);
 const LINE: Rgba = rgba_hex(0x333333, 1.0);
 const FG: Rgba = rgba_hex(0xcccccc, 1.0);
 const FG_BRIGHT: Rgba = rgba_hex(0xe7e7e7, 1.0);
@@ -1026,7 +1027,7 @@ impl AppState {
             .rounded(px(6.0))
             .border_1()
             .border_color(if selected { FOCUS_RING } else { LINE })
-            .bg(if selected { BG_SEL } else { BG_CARD })
+            .bg(if selected { BG_SEL } else { rgba_hex(0x2a2a2e, 0.45) })
             .when(!selected, |c| {
                 c.hover(|s| s.bg(BG_HOVER).border_color(rgba_hex(0x4a4a4a, 1.0)))
             })
@@ -1156,7 +1157,7 @@ impl AppState {
             .px(px(12.0))
             .border_b_1()
             .border_color(rgba_hex(0x2b2b2b, 1.0))
-            .bg(if selected { BG_SEL } else { BG_EDIT })
+            .bg(if selected { BG_SEL } else { TRANSPARENT })
             .when(!selected, |r| r.hover(|s| s.bg(BG_HOVER)))
             .on_click(cx.listener(move |state, _e, _w, cx| {
                 state.select(Some(ix), cx);
@@ -1453,7 +1454,7 @@ impl gpui::Render for AppState {
             .min_w_0()
             .flex()
             .flex_col()
-            .bg(BG_EDIT)
+            .bg(TRANSPARENT)
             .border_l_1()
             .border_color(LINE)
             .overflow_hidden()
@@ -1524,7 +1525,7 @@ impl gpui::Render for AppState {
             .flex()
             .flex_col()
             .size_full()
-            .bg(BG_EDIT)
+            .bg(TRANSPARENT)
             .text_color(FG)
             .font_family(ui_font())
             .on_key_down(cx.listener(Self::on_root_key))
@@ -1555,6 +1556,7 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitleBar::title_bar_options()),
+                    window_background: WindowBackgroundAppearance::Blurred,
                     ..Default::default()
                 },
                 cx,
