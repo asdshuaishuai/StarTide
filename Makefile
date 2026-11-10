@@ -53,7 +53,7 @@ asan:
 		$(CLI_SRC) $(CORE_SRC)
 
 gui:
-	cd app && cargo build --release
+	cd gui && cargo build --release
 
 # Cross-compile the engine for Windows x86_64 (requires mingw-w64).
 cross-win:
@@ -63,10 +63,10 @@ cross-win:
 		$(filter-out core/sh_fs_posix.c,$(CORE_SRC)) $(CLI_SRC)
 	@echo "built build-win/skillctl.exe"
 
-# Build the StarTide desktop app (Tauri shell over the C engine).
+# Build the StarTide desktop app (gpui-kit shell over the C engine).
 app:
-	cd app && cargo build --release
-	@echo "built app/target/release/startide (run it next to the skillctl build)"
+	cd gui && cargo build --release
+	@echo "built gui/target/release/startide"
 
 clean:
 	rm -rf build
