@@ -20,10 +20,8 @@ use std::process::Command;
 use std::rc::Rc;
 
 use gpui_kit::assets::Assets;
-use gpui_kit::component::badge::Badge;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::{Disableable, Icon, IconName, Sizable, Theme, ThemeMode};
 use gpui_kit::prelude::*;
@@ -43,14 +41,11 @@ const fn rgba_hex(hex: u32, alpha: f32) -> Rgba {
 }
 
 /* macOS 毛玻璃：面板半透明，模糊材质从窗口后透出。 */
-const BG_TITLE: Rgba = rgba_hex(0x1a1a1c, 0.72);
 const BG_SIDE: Rgba = rgba_hex(0x202023, 0.66);
-const BG_EDIT: Rgba = rgba_hex(0x232326, 0.80);
 const BG_INPUT: Rgba = rgba_hex(0x2c2c30, 0.85);
 const BG_CARD: Rgba = rgba_hex(0x2a2a2e, 0.62);
 const BG_HOVER: Rgba = rgba_hex(0x36363a, 0.55);
 const BG_SEL: Rgba = rgba_hex(0x0a4d6e, 0.55);
-const BG_BADGE: Rgba = rgba_hex(0x4d4d4d, 0.55);
 const LINE: Rgba = rgba_hex(0x333333, 1.0);
 const FG: Rgba = rgba_hex(0xcccccc, 1.0);
 const FG_BRIGHT: Rgba = rgba_hex(0xe7e7e7, 1.0);
@@ -77,9 +72,7 @@ const AGENT_COLORS: [Rgba; 10] = [
     rgba_hex(0x2f8f8a, 1.0),
 ];
 
-const ROW_HEIGHT: f32 = 40.0;
 const DETAIL_WIDTH: f32 = 312.0;
-const TREE_WIDTH: f32 = 208.0;
 
 /* --------------------------------------------------------- cli output */
 
@@ -262,7 +255,7 @@ fn find_cli() -> Option<PathBuf> {
 }
 
 impl AppState {
-    fn new(cx: &mut Context<Self>) -> Self {
+    fn new() -> Self {
         let cli = find_cli().unwrap_or_default();
         let cli_ok = cli.exists();
         AppState {
@@ -581,6 +574,11 @@ impl AppState {
 
 /* -------------------------------------------------------------- view */
 
+/* 在品牌色上叠一层透明度，做成柔和底色。 */
+fn tint(c: Rgba) -> Rgba {
+    Rgba { r: c.r, g: c.g, b: c.b, a: 0.16 }
+}
+
 impl AppState {
     /* 视图标题栏的 ghost 图标按钮。 */
     fn icon_action(
@@ -602,30 +600,36 @@ impl AppState {
             })
     }
 
-    /* 两态确认按钮（还原）。 */
+    /* 两态确认按钮（还原）：与其他工具钮一致，仅图标 + 悬浮提示。 */
     fn confirm_button(&self, cx: &Context<Self>) -> Button {
         let view = cx.entity();
         let armed = self.unlink_armed;
-        Button::new("unlink")
+        let tooltip: SharedString = if armed {
+            "确认：还原所有 agent 的原始目录".into()
+        } else {
+            "还原所有 agent 的原始目录".into()
+        };
+        let mut b = Button::new("unlink")
             .icon(IconName::Undo)
-            .label(if armed { "确认？" } else { "还原" })
-            .danger()
-            .tooltip("还原所有 agent 的原始目录")
-            .disabled(self.busy || !self.cli_ok)
-            .on_click(move |_e, _window, cx| {
-                view.update(cx, |state, cx| {
-                    if state.unlink_armed {
-                        state.run("unlink", vec!["unlink", "--json"], true, cx);
-                    } else {
-                        state.unlink_armed = true;
-                        state.set_message(
-                            MessageKind::Err,
-                            "再点一次「还原」以恢复所有 agent 的原始技能目录",
-                        );
-                        cx.notify();
-                    }
-                });
-            })
+            .tooltip(tooltip)
+            .disabled(self.busy || !self.cli_ok);
+        if armed {
+            b = b.danger();
+        }
+        b.on_click(move |_e, _window, cx| {
+            view.update(cx, |state, cx| {
+                if state.unlink_armed {
+                    state.run("unlink", vec!["unlink", "--json"], true, cx);
+                } else {
+                    state.unlink_armed = true;
+                    state.set_message(
+                        MessageKind::Err,
+                        "再点一次「还原」以恢复所有 agent 的原始技能目录",
+                    );
+                    cx.notify();
+                }
+            });
+        })
     }
 
     /* 状态过滤胶囊。 */
@@ -690,7 +694,8 @@ impl AppState {
         &self,
         id: String,
         label: String,
-        dot: Rgba,
+        initial: String,
+        color: Rgba,
         count: usize,
         active: bool,
         cx: &Context<Self>,
@@ -698,16 +703,36 @@ impl AppState {
     ) -> gpui::Stateful<gpui::Div> {
         div()
             .id(SharedString::from(id))
-            .h(px(26.0))
-            .pl(px(20.0))
+            .h(px(30.0))
+            .pl(px(10.0))
             .pr(px(10.0))
             .flex()
             .items_center()
             .gap(px(8.0))
+            .rounded(px(6.0))
             .bg(if active { BG_SEL } else { TRANSPARENT })
             .when(!active, |r| r.hover(|s| s.bg(BG_HOVER)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
-            .child(div().size(px(9.0)).flex_none().rounded_full().bg(dot))
+            .child(
+                div()
+                    .w(px(20.0))
+                    .h(px(20.0))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.0))
+                    .font_family("Menlo")
+                    .text_size(px(10.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(if active {
+                        rgba_hex(0xffffff, 1.0)
+                    } else {
+                        color
+                    })
+                    .bg(if active { color } else { tint(color) })
+                    .child(SharedString::from(initial)),
+            )
             .child(
                 div()
                     .min_w_0()
@@ -904,12 +929,12 @@ impl AppState {
             .bg(BG_SIDE)
             .border_l_1()
             .border_color(LINE)
-            .px(px(20.0))
-            .pt(px(16.0))
-            .pb(px(24.0))
+            .px(px(18.0))
+            .pt(px(14.0))
+            .pb(px(20.0))
             .flex()
             .flex_col()
-            .gap_4()
+            .gap_3()
             .child(
                 div()
                     .flex()
@@ -1060,7 +1085,8 @@ impl AppState {
 
         div()
             .id(SharedString::from(format!("card-{}", skill_ix)))
-            .w(px(232.0))
+            .flex_grow(1.0)
+            .min_w(px(224.0))
             .flex()
             .flex_col()
             .gap_2()
@@ -1068,7 +1094,7 @@ impl AppState {
             .rounded(px(6.0))
             .border_1()
             .border_color(if selected { FOCUS_RING } else { LINE })
-            .bg(if selected { BG_SEL } else { rgba_hex(0x2a2a2e, 0.45) })
+            .bg(if selected { BG_SEL } else { BG_CARD })
             .when(!selected, |c| {
                 c.hover(|s| s.bg(BG_HOVER).border_color(rgba_hex(0x4a4a4a, 1.0)))
             })
@@ -1265,7 +1291,7 @@ impl gpui::Render for AppState {
                 .items_center()
                 .gap_3()
                 .h_full()
-                .pl(if cfg!(target_os = "macos") { px(78.0) } else { px(12.0) })
+                .pl(if cfg!(target_os = "macos") { px(60.0) } else { px(12.0) })
                 .pr(px(10.0))
                 .child(Icon::new(IconName::Star).with_size(px(16.0)).text_color(rgba_hex(0x4fc3f7, 1.0)))
                 .child(
@@ -1385,11 +1411,11 @@ impl gpui::Render for AppState {
                             .ml(px(6.0))
                             .child(self.view_toggle(
                                 "v-cards", IconName::LayoutDashboard, self.skill_view == SkillView::Cards, cx,
-                                |state, cx| state.skill_view = SkillView::Cards,
+                                |state, _cx| state.skill_view = SkillView::Cards,
                             ))
                             .child(self.view_toggle(
                                 "v-list", IconName::Menu, self.skill_view == SkillView::List, cx,
-                                |state, cx| state.skill_view = SkillView::List,
+                                |state, _cx| state.skill_view = SkillView::List,
                             )),
                     ),
             );
@@ -1429,6 +1455,7 @@ impl gpui::Render for AppState {
         tree = tree.child(self.agent_row(
             "agent-all".into(),
             "全部".into(),
+            "✦".into(),
             rgba_hex(0x4fc3f7, 1.0),
             filtered.len(),
             self.agent_filter.is_none(),
@@ -1439,17 +1466,35 @@ impl gpui::Render for AppState {
                 cx.notify();
             },
         ));
-        for agent in &self.agents {
+        /* 共享目录 agents 置顶在全部下面，其余按名称排序。 */
+        let mut ordered: Vec<&AgentJson> = Vec::new();
+        if let Some(shared) = self.agents.iter().find(|a| a.id == "agents") {
+            ordered.push(shared);
+        }
+        let mut rest: Vec<&AgentJson> = self
+            .agents
+            .iter()
+            .filter(|a| a.id != "agents")
+            .collect();
+        rest.sort_by(|a, b| a.label.cmp(&b.label));
+        ordered.extend(rest);
+
+        for agent in ordered {
             let n = filtered
                 .iter()
                 .filter(|i| self.skills[**i].agents.iter().any(|a| a == &agent.id))
                 .count();
+            let label = if agent.label.is_empty() { agent.id.clone() } else { agent.label.clone() };
+            let initial = label.chars().next().unwrap_or('•').to_string();
+            let color = self.agent_color(&agent.id);
+            let is_active = self.agent_filter.as_deref() == Some(agent.id.as_str());
             tree = tree.child(self.agent_row(
                 format!("agent-{}", agent.id),
-                if agent.label.is_empty() { agent.id.clone() } else { agent.label.clone() },
-                self.agent_color(&agent.id),
+                label,
+                initial,
+                color,
                 n,
-                self.agent_filter.as_deref() == Some(agent.id.as_str()),
+                is_active,
                 cx,
                 {
                     let id = agent.id.clone();
@@ -1624,7 +1669,7 @@ fn main() {
                         s
                     });
                     cx.new(|cx| {
-                        let mut state = AppState::new(cx);
+                        let mut state = AppState::new();
                         state.search_state = Some(search_state);
                         if state.cli_ok {
                             state.refresh(cx);
