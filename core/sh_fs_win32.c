@@ -48,6 +48,47 @@ struct sh_dir {
     char *base;
 };
 
+/* Win32 has no strndup; provide it for the path helpers. */
+static char *strndup(const char *s, size_t n) {
+    char *out = malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, s, n);
+    out[n] = '\0';
+    return out;
+}
+
+/*
+ * REPARSE_DATA_BUFFER and its union arms live only in the DDK's ntifs.h;
+ * user-mode headers do not carry them.  Spell out the documented layout so
+ * both symlink and mount-point (junction) targets can be read.
+ */
+typedef struct {
+    USHORT SubstituteNameOffset;
+    USHORT SubstituteNameLength;
+    USHORT PrintNameOffset;
+    USHORT PrintNameLength;
+    ULONG Flags;
+    WCHAR PathBuffer[1];
+} SYMLINK_REPARSE_DATA;
+
+typedef struct {
+    USHORT SubstituteNameOffset;
+    USHORT SubstituteNameLength;
+    USHORT PrintNameOffset;
+    USHORT PrintNameLength;
+    WCHAR PathBuffer[1];
+} MOUNTPOINT_REPARSE_DATA;
+
+typedef struct {
+    ULONG ReparseTag;
+    USHORT ReparseDataLength;
+    USHORT Reserved;
+    union {
+        SYMLINK_REPARSE_DATA SymbolicLinkReparseBuffer;
+        MOUNTPOINT_REPARSE_DATA MountPointReparseBuffer;
+    } u;
+} REPARSE_DATA_BUF;
+
 const char *sh_fs_backend(void) { return "win32"; }
 
 const char *sh_fs_strerror(sh_fs_status st) {
@@ -156,7 +197,8 @@ char *sh_path_expand(const char *p, const char *home) {
     if (!home) {
         char buf[MAX_PATH];
         if (GetEnvironmentVariableA("USERPROFILE", buf, sizeof(buf)) == 0) return strdup(p);
-        home = buf;
+        char *joined = sh_path_join(buf, p + 2);
+        return joined;
     }
     return sh_path_join(home, p + 2);
 }
@@ -497,27 +539,22 @@ static char *read_reparse_target(const char *path) {
     CloseHandle(h);
     if (!ok) return NULL;
 
-    REPARSE_DATA_BUFFER *rd = (REPARSE_DATA_BUFFER *)buf;
+    REPARSE_DATA_BUF *rd = (REPARSE_DATA_BUF *)buf;
     const wchar_t *name = NULL;
     USHORT len = 0;
 
     if (rd->ReparseTag == IO_REPARSE_TAG_SYMLINK) {
-        /* GenericReparseBuffer shares storage with the symbolic link union. */
-        const BYTE *payload = rd->GenericReparseBuffer.DataBuffer;
-        const SYMBOLIC_LINK_REPARSE_BUFFER *sl =
-            (const SYMBOLIC_LINK_REPARSE_BUFFER *)payload;
+        const SYMLINK_REPARSE_DATA *sl = &rd->u.SymbolicLinkReparseBuffer;
         if (sl->PrintNameLength) {
-            name = (const wchar_t *)(payload + sl->PrintNameOffset);
+            name = (const wchar_t *)((const BYTE *)sl->PathBuffer + sl->PrintNameOffset);
             len = sl->PrintNameLength;
         } else {
-            name = (const wchar_t *)(payload + sl->SubstituteNameOffset);
+            name = (const wchar_t *)((const BYTE *)sl->PathBuffer + sl->SubstituteNameOffset);
             len = sl->SubstituteNameLength;
         }
     } else if (rd->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT) {
-        const BYTE *payload = rd->GenericReparseBuffer.DataBuffer;
-        const MOUNT_POINT_REPARSE_BUFFER *mp =
-            (const MOUNT_POINT_REPARSE_BUFFER *)payload;
-        name = (const wchar_t *)(payload + mp->SubstituteNameOffset);
+        const MOUNTPOINT_REPARSE_DATA *mp = &rd->u.MountPointReparseBuffer;
+        name = (const wchar_t *)((const BYTE *)mp->PathBuffer + mp->SubstituteNameOffset);
         len = mp->SubstituteNameLength;
     }
     if (!name || len == 0) return NULL;
@@ -530,7 +567,7 @@ static char *read_reparse_target(const char *path) {
         if (*q == '\\') *q = '/';
         /* Junction targets arrive as \??\C:\... */
     }
-    if (out && strncmp(out, "/??/", 4) == 0) memmove(out, out + 4, strlen(out + 4) + 1);
+    if (out && strncmp(out, "/??" "/", 4) == 0) memmove(out, out + 4, strlen(out + 4) + 1);
     return out;
 }
 

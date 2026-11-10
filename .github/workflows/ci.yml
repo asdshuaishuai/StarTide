@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine:
+    name: engine (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMake)
+        run: cmake -B build
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./build/Release/test_core.exe
+          else
+            ./build/test_core
+          fi
+
+      - name: End-to-end
+        shell: bash
+        env:
+          SKILLCTL_BIN: ${{ runner.os == 'Windows' && 'build/Release/skillctl.exe' || 'build/skillctl' }}
+        run: bash tests/e2e.sh
+
+  gui:
+    name: gui (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build StarTide
+        working-directory: gui
+        run: cargo build --release

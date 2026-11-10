@@ -5,7 +5,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="$ROOT/build/skillctl"
+BIN="${SKILLCTL_BIN:-$ROOT/build/skillctl}"
 WORK="${TMPDIR:-/tmp}/skillctl-e2e-$$"
 FIX="$WORK/home"
 STORE="$WORK/store"

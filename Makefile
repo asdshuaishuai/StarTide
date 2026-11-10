@@ -18,7 +18,7 @@ ifeq ($(UNAME),Darwin)
 LDFLAGS += -Wl,-rpath,@executable_path/../lib
 endif
 
-.PHONY: all clean test asan e2e asan-smoke gui app
+.PHONY: all clean test asan e2e asan-smoke gui app cross-win
 
 e2e: $(BIN)
 	./tests/e2e.sh
@@ -54,6 +54,14 @@ asan:
 
 gui:
 	cd gui && cargo build --release
+
+# Cross-compile the engine for Windows x86_64 (requires mingw-w64).
+cross-win:
+	@mkdir -p build-win
+	x86_64-w64-mingw32-gcc -std=c99 -O2 -Wall -Wextra -Wno-unused-parameter -Icore \
+		-o build-win/skillctl.exe \
+		$(filter-out core/sh_fs_posix.c,$(CORE_SRC)) $(CLI_SRC)
+	@echo "built build-win/skillctl.exe"
 
 # Build the StarTide.app bundle (icon, plist, release binary).
 app:
