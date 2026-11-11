@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 
-use gpui_kit::assets::Assets;
+use gpui_kit::assets::AllAssets;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::TitleBar;
@@ -2242,7 +2242,7 @@ mod fs_read_tests {
 
 fn main() {
     gpui_kit::application()
-        .with_assets(Assets)
+        .with_assets(AllAssets)
         .run(|cx| {
             init(cx);
             /* 主题：从偏好文件恢复（深/浅 × 强调色），并同步 kit 品牌色。 */
