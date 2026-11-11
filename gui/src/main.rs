@@ -47,13 +47,13 @@ const BG_SIDE: Rgba = rgba_hex(0x202023, 0.66);
 const BG_INPUT: Rgba = rgba_hex(0x2c2c30, 0.85);
 const BG_CARD: Rgba = rgba_hex(0x2a2a2e, 0.62);
 const BG_HOVER: Rgba = rgba_hex(0x36363a, 0.55);
-const BG_SEL: Rgba = rgba_hex(0x0a4d6e, 0.55);
+const BG_SEL: Rgba = rgba_hex(0x0f5f56, 0.5);
 const LINE: Rgba = rgba_hex(0x333333, 1.0);
 const FG: Rgba = rgba_hex(0xcccccc, 1.0);
 const FG_BRIGHT: Rgba = rgba_hex(0xe7e7e7, 1.0);
 const FG_DIM: Rgba = rgba_hex(0x858585, 1.0);
 const FG_FAINT: Rgba = rgba_hex(0x6a6a6a, 1.0);
-const FOCUS_RING: Rgba = rgba_hex(0x007fd4, 1.0);
+const FOCUS_RING: Rgba = rgba_hex(0x2dd4bf, 1.0);
 const LINK: Rgba = rgba_hex(0x3794ff, 1.0);
 const GREEN: Rgba = rgba_hex(0x89d185, 1.0);
 const AMBER: Rgba = rgba_hex(0xcca700, 1.0);
@@ -1350,7 +1350,8 @@ impl AppState {
         div()
             .id(SharedString::from(format!("card-{}", skill_ix)))
             .flex_grow(1.0)
-            .min_w(px(224.0))
+            .min_w(px(192.0))
+            .max_w(px(264.0))
             .flex()
             .flex_col()
             .gap_2()
@@ -1730,7 +1731,7 @@ impl gpui::Render for AppState {
             "agent-all".into(),
             "全部".into(),
             "✦".into(),
-            rgba_hex(0x4fc3f7, 1.0),
+            rgba_hex(0x2dd4bf, 1.0),
             filtered.len(),
             self.agent_filter.is_none(),
             cx,
@@ -2059,6 +2060,12 @@ fn main() {
             init(cx);
             /* 深色主题：让 kit 组件（ghost 按钮 hover 等）融入 VS Code 风格。 */
             Theme::change(ThemeMode::Dark, None, cx);
+            /* 品牌色：teal。kit 的 primary 驱动按钮激活态、输入框焦点环等。 */
+            {
+                let theme = Theme::global_mut(cx);
+                theme.primary = rgb(0x2dd4bf).into();
+                theme.accent = rgb(0x2dd4bf).into();
+            }
             let bounds = Bounds::centered(None, size(px(1200.0), px(780.0)), cx);
             open_window(
                 WindowOptions {
