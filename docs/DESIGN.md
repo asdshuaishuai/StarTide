@@ -77,13 +77,13 @@ unit { id = sha256(tree)[0:16], name, description, size, files, sources[] }
 - POSIX 后端已实现；Win32 后端实现同一接口（`FindFirstFileW`、
   `CreateSymbolicLinkW`、`MoveFileExW`、UTF-8↔UTF-16 边界转换，
   目录软链无权限时降级 junction）
-- GUI（GPUI）只 spawn CLI，逻辑零重复；CLI 的 `--json`/`--stream` 是
-  两层之间唯一契约
+- GUI（GPUI）只 spawn CLI，逻辑零重复；CLI 的 `--json` 输出是两层之间唯一
+  契约（`--stream` 进度事件 GUI 目前未使用）
 
 ## 测试
 
 - `tests/test_core.c`：路径、YAML（block scalar/CRLF/引号/嵌套）、SHA-256
-  标准向量、软链、树哈希稳定性，65 项
+  标准向量、软链、树哈希稳定性，68 项
 - `tests/e2e.sh`：夹具 home（嵌套 skill、同名异版、CRLF、插件缓存布局、
   共享 .agents）上跑 scan→import→link→scope 切换→status→unlink→gc→sync
   全流程，27 项

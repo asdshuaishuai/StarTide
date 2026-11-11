@@ -12,6 +12,7 @@ CLI_SRC  := $(wildcard cli/*.c)
 CORE_OBJ := $(CORE_SRC:.c=.o)
 CLI_OBJ  := $(CLI_SRC:.c=.o)
 BIN      := build/skillctl
+APP      := StarTide.app
 
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
@@ -64,10 +65,16 @@ cross-win:
 	@echo "built build-win/skillctl.exe"
 
 # Build the StarTide desktop app (gpui-kit shell over the C engine).
+# Assembles the bundle in the repo root: StarTide.app.
 app:
 	cd gui && cargo build --release
-	@echo "built gui/target/release/startide"
+	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
+	@cp gui/target/release/startide $(APP)/Contents/MacOS/startide
+	@cp gui/resources/Info.plist $(APP)/Contents/Info.plist
+	@cp gui/resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
+	@echo "built ./$(APP): Contents/MacOS/startide, Contents/Info.plist, Contents/Resources/AppIcon.icns"
 
 clean:
 	rm -rf build
+	rm -rf $(APP)
 	rm -f $(CORE_OBJ) $(CLI_OBJ) $(CORE_OBJ:.o=.d) $(CLI_OBJ:.o=.d)

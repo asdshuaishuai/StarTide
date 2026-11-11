@@ -15,6 +15,7 @@
  *   enter             open or close the detail pane
  *   esc               clear the filter, or drop the selection
  */
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -74,9 +75,18 @@ const AGENT_COLORS: [Rgba; 10] = [
 
 const DETAIL_WIDTH: f32 = 312.0;
 
+/* 文件清单：展示深度 ≤2（由 read_file_listing 的两层循环保证）、最多 50 条。 */
+const LISTING_MAX_ENTRIES: usize = 50;
+
+/* 封面扫描：单文件 ≤2MB。 */
+const COVER_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/* 只读展示缓存（目录清单 / 卡片封面）的条目上限，超过即整体清空，防止无界增长。 */
+const FS_CACHE_LIMIT: usize = 1024;
+
 /* --------------------------------------------------------- cli output */
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct CatalogLine {
     id: String,
     name: String,
@@ -149,6 +159,14 @@ enum MessageKind {
     Err,
 }
 
+/* 文件清单的一行；目录在展示时补「/」后缀，depth 1 是根目录项，2 是二级项。 */
+#[derive(Clone)]
+struct ListingEntry {
+    name: String,
+    is_dir: bool,
+    depth: usize,
+}
+
 struct AppState {
     cli: PathBuf,
     cli_ok: bool,
@@ -171,6 +189,11 @@ struct AppState {
     msg: SharedString,
 
     search_state: Option<Entity<InputState>>,
+
+    /* 只读展示缓存（GUI 直接读文件系统；一切写操作仍只走 CLI）：
+     * 目录清单与封面都按 skill_base_dir 的目录路径缓存。 */
+    file_listings: HashMap<String, Option<Vec<ListingEntry>>>,
+    card_thumbs: HashMap<String, Option<PathBuf>>,
 }
 
 fn format_bytes(bytes: f64) -> String {
@@ -222,6 +245,120 @@ fn modifier_label() -> &'static str {
     } else {
         "Ctrl"
     }
+}
+
+/* ---------------------------------------------------------------- fs read */
+
+/*
+ * 以下均为只读展示用途：GUI 直接读文件系统，不做任何写入；
+ * 一切写操作仍只经 CLI（既定设计决策）。
+ */
+
+/* 读取一个目录并排序：目录优先，同级按名称。失败返回 None。 */
+fn read_dir_entries(dir: &Path) -> Option<Vec<(String, bool, PathBuf)>> {
+    let rd = std::fs::read_dir(dir).ok()?;
+    let mut entries: Vec<(String, bool, PathBuf)> = rd
+        .filter_map(|e| e.ok())
+        .map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            (name, is_dir, e.path())
+        })
+        .collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Some(entries)
+}
+
+/* 详情「文件清单」：深度 ≤2、最多 50 条。根目录读不到整体返回 None；
+ * 二级子目录读不到则跳过该子目录，不影响其余条目。 */
+fn read_file_listing(root: &Path) -> Option<Vec<ListingEntry>> {
+    let mut out: Vec<ListingEntry> = Vec::new();
+    for (name, is_dir, path) in read_dir_entries(root)? {
+        if out.len() >= LISTING_MAX_ENTRIES {
+            break;
+        }
+        out.push(ListingEntry { name, is_dir, depth: 1 });
+        if is_dir {
+            for (name, is_dir, _) in read_dir_entries(&path).unwrap_or_default() {
+                if out.len() >= LISTING_MAX_ENTRIES {
+                    break;
+                }
+                out.push(ListingEntry { name, is_dir, depth: 2 });
+            }
+        }
+    }
+    Some(out)
+}
+
+/* 卡片代表图：cover.* / preview.* / icon.* 依次优先，
+ * 否则取首个 *.png|jpg|jpeg|webp。扫描深度 ≤2、跳过点目录、单文件 ≤2MB。 */
+fn find_cover_image(root: &Path) -> Option<PathBuf> {
+    /* 具名封面允许位图以外的常见图片格式（icon.svg / icon.ico 很常见）。
+     * 不收 gif：gpui 会把多帧 GIF 逐帧动画，每个布局 pass 都请求重绘，
+     * 活动期间整棵 UI 每帧重建、CPU 常驻占用，封面场景不值得。 */
+    const NAMED_EXTS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "svg", "ico"];
+    const FALLBACK_EXTS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
+    const STEM_PRIORITY: [&str; 3] = ["cover", "preview", "icon"];
+
+    /* (路径, 小写主干, 小写扩展名, 深度)；先一层后二层、层内已按名排序。 */
+    let mut candidates: Vec<(PathBuf, String, String)> = Vec::new();
+    collect_image_files(root, &NAMED_EXTS, &mut candidates);
+    for (name, is_dir, path) in read_dir_entries(root).unwrap_or_default() {
+        if is_dir && !name.starts_with('.') {
+            collect_image_files(&path, &NAMED_EXTS, &mut candidates);
+        }
+    }
+    if candidates.is_empty() {
+        return None;
+    }
+
+    for stem in STEM_PRIORITY {
+        if let Some((path, _, _)) = candidates.iter().find(|(_, s, _)| s == stem) {
+            return Some(path.clone());
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|(_, _, ext)| FALLBACK_EXTS.contains(&ext.as_str()))
+        .map(|(path, _, _)| path)
+}
+
+/* 把目录下（不递归）符合条件的图片文件追加进 candidates。 */
+fn collect_image_files(dir: &Path, exts: &[&str], candidates: &mut Vec<(PathBuf, String, String)>) {
+    for (name, is_dir, path) in read_dir_entries(dir).unwrap_or_default() {
+        if is_dir || name.starts_with('.') {
+            continue;
+        }
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) => (s.to_lowercase(), e.to_lowercase()),
+            None => continue,
+        };
+        if exts.contains(&ext.as_str())
+            && std::fs::metadata(&path)
+                .map(|m| m.len() <= COVER_MAX_FILE_BYTES)
+                .unwrap_or(false)
+        {
+            candidates.push((path, stem, ext));
+        }
+    }
+}
+
+/* 首字母章：卡片无封面时的占位；封面加载失败也回退到它。 */
+fn initial_badge(letter: String, color: Rgba) -> gpui::Div {
+    div()
+        .w(px(26.0))
+        .h(px(26.0))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(5.0))
+        .font_family("Menlo")
+        .text_size(px(12.0))
+        .font_weight(FontWeight::BOLD)
+        .text_color(color)
+        .bg(rgba_hex(0x2d2d2f, 1.0))
+        .child(SharedString::from(letter))
 }
 
 /* 定位 skillctl 引擎：SKILLCTL_BIN、项目树或 PATH。 */
@@ -277,6 +414,8 @@ impl AppState {
             msg_kind: MessageKind::Idle,
             msg: "启动中".into(),
             search_state: None,
+            file_listings: HashMap::new(),
+            card_thumbs: HashMap::new(),
         }
     }
 
@@ -304,9 +443,68 @@ impl AppState {
         AGENT_COLORS[i % AGENT_COLORS.len()]
     }
 
+    /* 只读展示的基准目录：优先仓库 units 目录，否则第一个来源路径。 */
+    fn skill_base_dir(&self, entry: &CatalogLine) -> Option<String> {
+        if entry.stored && !self.store_home.is_empty() {
+            return Some(format!("{}/units/{}", self.store_home, entry.id));
+        }
+        entry
+            .sources
+            .first()
+            .filter(|s| !s.is_empty())
+            .cloned()
+    }
+
+    /* 选中变化时读一次目录：缓存命中则绝不重读。 */
+    fn ensure_file_listing(&mut self, entry: &CatalogLine) {
+        let Some(dir) = self.skill_base_dir(entry) else {
+            return;
+        };
+        if self.file_listings.contains_key(&dir) {
+            return;
+        }
+        let listing = read_file_listing(Path::new(&dir));
+        if self.file_listings.len() >= FS_CACHE_LIMIT {
+            self.file_listings.clear();
+        }
+        self.file_listings.insert(dir, listing);
+    }
+
+    /* 卡片惰性封面：render 只查缓存；未命中先占位 None（防止重复派发），
+     * 再把 find_cover_image（纯 fs 读）放到后台执行，完成后写回缓存并通知重绘。
+     * 目录口径与文件清单一致，都用 skill_base_dir。 */
+    fn ensure_card_thumb(&mut self, entry: &CatalogLine, cx: &Context<Self>) {
+        let Some(dir) = self.skill_base_dir(entry) else {
+            return;
+        };
+        if self.card_thumbs.contains_key(&dir) {
+            return;
+        }
+        if self.card_thumbs.len() >= FS_CACHE_LIMIT {
+            self.card_thumbs.clear();
+        }
+        self.card_thumbs.insert(dir.clone(), None);
+
+        let dir_for_scan = dir.clone();
+        cx.spawn(async move |this, cx| {
+            let cover = cx
+                .background_executor()
+                .spawn(async move { find_cover_image(Path::new(&dir_for_scan)) })
+                .await;
+            let _ = this.update(cx, |state, cx| {
+                state.card_thumbs.insert(dir, cover);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /* ------------------------------------------------------- cli access */
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        /* CLI 刚可能写过磁盘：清空只读展示缓存，下次选中再读。 */
+        self.file_listings.clear();
+        self.card_thumbs.clear();
         if let Some(lines) = self.read_lines(&["catalog", "--json"]) {
             let mut lines = lines;
             lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1039,7 +1237,54 @@ impl AppState {
                 self.path_row("store".into(), &unit_path, "尚未复制进仓库", true, cx)
                     .into_any_element(),
             ))
+            .child(self.section_panel("文件清单", self.render_file_listing(entry)))
             .into_any_element()
+    }
+
+    /* 「文件清单」内容：等宽字体，目录带「/」后缀，二级缩进。缓存由
+     * render() 里的 ensure_file_listing 保证只读一次。 */
+    fn render_file_listing(&self, entry: &CatalogLine) -> gpui::AnyElement {
+        let Some(dir) = self.skill_base_dir(entry) else {
+            return div()
+                .text_size(px(11.0))
+                .text_color(FG_FAINT)
+                .child("无法读取目录")
+                .into_any_element();
+        };
+        match self.file_listings.get(&dir) {
+            Some(Some(entries)) if !entries.is_empty() => {
+                let mut rows = div().flex().flex_col().gap(px(1.0));
+                for e in entries {
+                    let label = if e.is_dir {
+                        format!("{}/", e.name)
+                    } else {
+                        e.name.clone()
+                    };
+                    rows = rows.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .pl(if e.depth == 2 { px(14.0) } else { px(0.0) })
+                            .font_family("Menlo")
+                            .text_size(px(10.5))
+                            .text_color(if e.is_dir { FG_DIM } else { FG_FAINT })
+                            .truncate()
+                            .child(SharedString::from(label)),
+                    );
+                }
+                rows.into_any_element()
+            }
+            Some(Some(_)) => div()
+                .text_size(px(11.0))
+                .text_color(FG_FAINT)
+                .child("空目录")
+                .into_any_element(),
+            _ => div()
+                .text_size(px(11.0))
+                .text_color(FG_FAINT)
+                .child("无法读取目录")
+                .into_any_element(),
+        }
     }
 
     /* 卡片视图单卡。 */
@@ -1078,6 +1323,30 @@ impl AppState {
             );
         }
 
+        /* 卡片章：有封面图则用圆角小预览替换首字母；加载失败回退到首字母章。 */
+        let badge_color = self.agent_color(
+            entry.agents.first().map(|s| s.as_str()).unwrap_or(""),
+        );
+        let letter = entry.name.chars().next().unwrap_or('?').to_string();
+        let thumb = self
+            .skill_base_dir(entry)
+            .and_then(|dir| self.card_thumbs.get(&dir))
+            .cloned()
+            .flatten();
+        let badge: gpui::AnyElement = if let Some(path) = thumb {
+            img(path)
+                .size(px(26.0))
+                .rounded(px(5.0))
+                .object_fit(ObjectFit::Cover)
+                .with_fallback({
+                    let letter = letter.clone();
+                    move || initial_badge(letter.clone(), badge_color).into_any_element()
+                })
+                .into_any_element()
+        } else {
+            initial_badge(letter, badge_color).into_any_element()
+        };
+
         div()
             .id(SharedString::from(format!("card-{}", skill_ix)))
             .flex_grow(1.0)
@@ -1101,26 +1370,7 @@ impl AppState {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        div()
-                            .w(px(26.0))
-                            .h(px(26.0))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(5.0))
-                            .font_family("Menlo")
-                            .text_size(px(12.0))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(self.agent_color(
-                                entry.agents.first().map(|s| s.as_str()).unwrap_or(""),
-                            ))
-                            .bg(rgba_hex(0x2d2d2f, 1.0))
-                            .child(SharedString::from(
-                                entry.name.chars().next().unwrap_or('?').to_string(),
-                            )),
-                    )
+                    .child(badge)
                     .child(
                         div()
                             .min_w_0()
@@ -1560,8 +1810,10 @@ impl gpui::Render for AppState {
         } else if self.skill_view == SkillView::Cards {
             let mut cards = div().flex().flex_wrap().gap(px(10.0));
             for (ix, i) in filtered.iter().enumerate() {
-                if let Some(entry) = self.skills.get(*i) {
-                    cards = cards.child(self.card(ix, *i, entry, effective == Some(ix), cx));
+                /* 先克隆条目：ensure_* 需要可变借用自身（更新缓存）。 */
+                if let Some(entry) = self.skills.get(*i).cloned() {
+                    self.ensure_card_thumb(&entry, cx);
+                    cards = cards.child(self.card(ix, *i, &entry, effective == Some(ix), cx));
                 }
             }
             div()
@@ -1616,8 +1868,14 @@ impl gpui::Render for AppState {
 
         /* ================================================== detail */
         let detail: gpui::AnyElement = match effective.map(|i| filtered[i]) {
-            Some(skill_ix) if self.skills.get(skill_ix).is_some() => {
-                self.render_detail(&self.skills[skill_ix], cx)
+            Some(skill_ix) => {
+                /* 文件清单缓存：选中变化时读一次，其余帧只查表。 */
+                if let Some(entry) = self.skills.get(skill_ix).cloned() {
+                    self.ensure_file_listing(&entry);
+                    self.render_detail(&entry, cx)
+                } else {
+                    div().w(px(0.0)).flex_none().into_any_element()
+                }
             }
             _ => div().w(px(0.0)).flex_none().into_any_element(),
         };
@@ -1673,6 +1931,124 @@ impl gpui::Render for AppState {
                     .child(detail),
             )
             .child(status_bar)
+    }
+}
+
+/* --------------------------------------------------------------- tests */
+
+#[cfg(test)]
+mod fs_read_tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("startide-fs-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[core::prelude::v1::test]
+    fn listing_sorts_dirs_first_and_depth_two() {
+        let root = temp_root("listing-sort");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/inner.txt"), "x").unwrap();
+        std::fs::write(root.join("b.txt"), "x").unwrap();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+
+        let entries = read_file_listing(&root).unwrap();
+        let names: Vec<(&str, usize)> = entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.depth))
+            .collect();
+        assert_eq!(
+            names,
+            vec![("sub", 1), ("inner.txt", 2), ("a.txt", 1), ("b.txt", 1)]
+        );
+        assert!(entries[0].is_dir);
+        assert!(!entries[1].is_dir);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn listing_caps_at_max_entries() {
+        let root = temp_root("listing-cap");
+        for i in 0..80 {
+            std::fs::write(root.join(format!("f{:02}.txt", i)), "x").unwrap();
+        }
+        let entries = read_file_listing(&root).unwrap();
+        assert_eq!(entries.len(), LISTING_MAX_ENTRIES);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn listing_none_on_missing_dir() {
+        let root = temp_root("listing-missing");
+        assert!(read_file_listing(&root.join("nope")).is_none());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn cover_prefers_named_stems_then_first_image() {
+        let root = temp_root("cover-priority");
+        std::fs::write(root.join("random.png"), "x").unwrap();
+        std::fs::write(root.join("icon.svg"), "x").unwrap();
+        std::fs::write(root.join("preview.jpg"), "x").unwrap();
+        std::fs::write(root.join("cover.png"), "x").unwrap();
+
+        let cover = find_cover_image(&root).unwrap();
+        assert_eq!(cover.file_name().unwrap(), "cover.png");
+
+        std::fs::remove_file(root.join("cover.png")).unwrap();
+        assert_eq!(
+            find_cover_image(&root).unwrap().file_name().unwrap(),
+            "preview.jpg"
+        );
+
+        std::fs::remove_file(root.join("preview.jpg")).unwrap();
+        assert_eq!(
+            find_cover_image(&root).unwrap().file_name().unwrap(),
+            "icon.svg"
+        );
+
+        std::fs::remove_file(root.join("icon.svg")).unwrap();
+        assert_eq!(
+            find_cover_image(&root).unwrap().file_name().unwrap(),
+            "random.png"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn cover_skips_dot_dirs_and_over_limit_files() {
+        let root = temp_root("cover-skip");
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        std::fs::write(root.join(".hidden/cover.png"), "x").unwrap();
+        std::fs::write(root.join(".cover.png"), "x").unwrap();
+        let big = vec![0u8; (COVER_MAX_FILE_BYTES + 1) as usize];
+        std::fs::write(root.join("huge.png"), &big).unwrap();
+        std::fs::write(root.join("ok.png"), "x").unwrap();
+
+        let cover = find_cover_image(&root).unwrap();
+        assert_eq!(cover.file_name().unwrap(), "ok.png");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn cover_scans_second_level() {
+        let root = temp_root("cover-depth2");
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        std::fs::write(root.join("assets/cover.png"), "x").unwrap();
+        let cover = find_cover_image(&root).unwrap();
+        assert!(cover.ends_with("assets/cover.png"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[core::prelude::v1::test]
+    fn cover_none_without_images() {
+        let root = temp_root("cover-none");
+        std::fs::write(root.join("SKILL.md"), "x").unwrap();
+        assert!(find_cover_image(&root).is_none());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
 
