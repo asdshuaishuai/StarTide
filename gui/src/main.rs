@@ -43,21 +43,164 @@ const fn rgba_hex(hex: u32, alpha: f32) -> Rgba {
 }
 
 /* macOS 毛玻璃：面板半透明，模糊材质从窗口后透出。 */
-const BG_SIDE: Rgba = rgba_hex(0x202023, 0.66);
-const BG_INPUT: Rgba = rgba_hex(0x2c2c30, 0.85);
-const BG_CARD: Rgba = rgba_hex(0x2a2a2e, 0.62);
-const BG_HOVER: Rgba = rgba_hex(0x36363a, 0.55);
-const BG_SEL: Rgba = rgba_hex(0x0f5f56, 0.5);
-const LINE: Rgba = rgba_hex(0x333333, 1.0);
-const FG: Rgba = rgba_hex(0xcccccc, 1.0);
-const FG_BRIGHT: Rgba = rgba_hex(0xe7e7e7, 1.0);
-const FG_DIM: Rgba = rgba_hex(0x858585, 1.0);
-const FG_FAINT: Rgba = rgba_hex(0x6a6a6a, 1.0);
-const FOCUS_RING: Rgba = rgba_hex(0x2dd4bf, 1.0);
-const LINK: Rgba = rgba_hex(0x3794ff, 1.0);
-const GREEN: Rgba = rgba_hex(0x89d185, 1.0);
-const AMBER: Rgba = rgba_hex(0xcca700, 1.0);
 const TRANSPARENT: Rgba = rgba_hex(0x000000, 0.0);
+
+/* 可切换主题：深/浅 × 强调色。所有界面颜色都从 Palette 取。 */
+#[derive(Clone, Copy)]
+struct Palette {
+    side: Rgba,
+    input: Rgba,
+    card: Rgba,
+    hover: Rgba,
+    sel: Rgba,
+    line: Rgba,
+    fg: Rgba,
+    fg_bright: Rgba,
+    fg_dim: Rgba,
+    fg_faint: Rgba,
+    focus: Rgba,
+    link: Rgba,
+    green: Rgba,
+    amber: Rgba,
+    row_border: Rgba,
+    card_hover_border: Rgba,
+    panel: Rgba,
+    panel_border: Rgba,
+    dot_off: Rgba,
+    badge_bg: Rgba,
+    statusbar_bg: Rgba,
+    accent: Rgba,
+}
+
+impl gpui::Global for Palette {}
+
+/* 全局取色：任何持有 cx 的地方都能用。 */
+fn pal(cx: &App) -> &Palette {
+    cx.global::<Palette>()
+}
+
+/* 在颜色上叠一层透明度。 */
+fn with_alpha(c: Rgba, a: f32) -> Rgba {
+    Rgba { r: c.r, g: c.g, b: c.b, a }
+}
+
+/* 深浅两套底色，强调色动态注入（sel/focus/accent 跟随）。 */
+fn build_palette(dark: bool, accent: Rgba) -> Palette {
+    if dark {
+        Palette {
+            side: rgba_hex(0x202023, 0.66),
+            input: rgba_hex(0x2c2c30, 0.85),
+            card: rgba_hex(0x2a2a2e, 0.62),
+            hover: rgba_hex(0x36363a, 0.55),
+            sel: with_alpha(accent, 0.42),
+            line: rgba_hex(0x333333, 1.0),
+            fg: rgba_hex(0xcccccc, 1.0),
+            fg_bright: rgba_hex(0xe7e7e7, 1.0),
+            fg_dim: rgba_hex(0x858585, 1.0),
+            fg_faint: rgba_hex(0x6a6a6a, 1.0),
+            focus: accent,
+            link: rgba_hex(0x3794ff, 1.0),
+            green: rgba_hex(0x89d185, 1.0),
+            amber: rgba_hex(0xcca700, 1.0),
+            row_border: rgba_hex(0x2b2b2b, 1.0),
+            card_hover_border: rgba_hex(0x4a4a4a, 1.0),
+            panel: rgba_hex(0xffffff, 0.03),
+            panel_border: rgba_hex(0xffffff, 0.05),
+            dot_off: rgba_hex(0x3a3a3a, 1.0),
+            badge_bg: rgba_hex(0x2d2d2f, 1.0),
+            statusbar_bg: rgba_hex(0x18181b, 0.85),
+            accent,
+        }
+    } else {
+        Palette {
+            side: rgba_hex(0xf6f6f7, 0.72),
+            input: rgba_hex(0xffffff, 0.75),
+            card: rgba_hex(0xffffff, 0.6),
+            hover: rgba_hex(0xe4e4e7, 0.6),
+            sel: with_alpha(accent, 0.16),
+            line: rgba_hex(0xd8d8dc, 1.0),
+            fg: rgba_hex(0x52525b, 1.0),
+            fg_bright: rgba_hex(0x18181b, 1.0),
+            fg_dim: rgba_hex(0x71717a, 1.0),
+            fg_faint: rgba_hex(0xa1a1aa, 1.0),
+            focus: accent,
+            link: rgba_hex(0x2563eb, 1.0),
+            green: rgba_hex(0x16a34a, 1.0),
+            amber: rgba_hex(0xb45309, 1.0),
+            row_border: rgba_hex(0xe4e4e7, 1.0),
+            card_hover_border: rgba_hex(0xc8c8cc, 1.0),
+            panel: rgba_hex(0x000000, 0.03),
+            panel_border: rgba_hex(0x000000, 0.06),
+            dot_off: rgba_hex(0xd4d4d8, 1.0),
+            badge_bg: rgba_hex(0xeeeeef, 1.0),
+            statusbar_bg: rgba_hex(0xfafafa, 0.85),
+            accent,
+        }
+    }
+}
+
+/* 强调色选项。 */
+const ACCENTS: [(&str, Rgba); 4] = [
+    ("青", rgba_hex(0x2dd4bf, 1.0)),
+    ("蓝", rgba_hex(0x5b9cf6, 1.0)),
+    ("紫", rgba_hex(0xa78bfa, 1.0)),
+    ("琥珀", rgba_hex(0xe0a93c, 1.0)),
+];
+
+/* 主题偏好（持久化到 store 目录的 gui-theme.json）。 */
+#[derive(Clone, Copy, PartialEq)]
+struct ThemePref {
+    dark: bool,
+    accent: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ThemePrefJson {
+    dark: bool,
+    accent: usize,
+}
+
+fn theme_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("SKILLCTL_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".skillctl")))?;
+    Some(home.join("gui-theme.json"))
+}
+
+fn load_pref() -> ThemePref {
+    let default = ThemePref { dark: true, accent: 0 };
+    let Some(path) = theme_path() else { return default };
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<ThemePrefJson>(&s).ok())
+        .map(|j| ThemePref { dark: j.dark, accent: j.accent })
+        .unwrap_or(default)
+}
+
+fn save_pref(pref: ThemePref) {
+    if let Some(path) = theme_path() {
+        let json = ThemePrefJson { dark: pref.dark, accent: pref.accent };
+        if let Ok(s) = serde_json::to_string(&json) {
+            let _ = std::fs::write(path, s);
+        }
+    }
+}
+
+/* 应用主题：写全局调色板 + 同步 kit 主题与品牌色。 */
+fn apply_theme(pref: ThemePref, cx: &mut App) {
+    let accent = ACCENTS[pref.accent % ACCENTS.len()].1;
+    cx.set_global(build_palette(pref.dark, accent));
+    Theme::change(
+        if pref.dark { ThemeMode::Dark } else { ThemeMode::Light },
+        None,
+        cx,
+    );
+    let theme = Theme::global_mut(cx);
+    theme.primary = accent.into();
+    theme.accent = accent.into();
+}
 
 /* 一个 agent 一个色相。 */
 const AGENT_COLORS: [Rgba; 10] = [
@@ -182,6 +325,7 @@ struct AppState {
     skill_view: SkillView,
     selected: Option<usize>,
     show_detail: bool,
+    theme_pref: ThemePref,
     unlink_armed: bool,
 
     busy: bool,
@@ -344,7 +488,7 @@ fn collect_image_files(dir: &Path, exts: &[&str], candidates: &mut Vec<(PathBuf,
 }
 
 /* 首字母章：卡片无封面时的占位；封面加载失败也回退到它。 */
-fn initial_badge(letter: String, color: Rgba) -> gpui::Div {
+fn initial_badge(letter: String, color: Rgba, badge_bg: Rgba) -> gpui::Div {
     div()
         .w(px(26.0))
         .h(px(26.0))
@@ -357,7 +501,7 @@ fn initial_badge(letter: String, color: Rgba) -> gpui::Div {
         .text_size(px(12.0))
         .font_weight(FontWeight::BOLD)
         .text_color(color)
-        .bg(rgba_hex(0x2d2d2f, 1.0))
+        .bg(badge_bg)
         .child(SharedString::from(letter))
 }
 
@@ -409,6 +553,7 @@ impl AppState {
             skill_view: SkillView::Cards,
             selected: None,
             show_detail: false,
+            theme_pref: load_pref(),
             unlink_armed: false,
             busy: false,
             msg_kind: MessageKind::Idle,
@@ -779,10 +924,10 @@ fn tint(c: Rgba) -> Rgba {
 
 impl AppState {
     /* 视图标题栏的 ghost 图标按钮。 */
-    fn icon_action(
+    fn icon_action<I: gpui_kit::component::IconNamed + Clone + 'static>(
         &self,
         id: &'static str,
-        icon: IconName,
+        icon: I,
         tooltip: &'static str,
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
@@ -840,6 +985,7 @@ impl AppState {
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
+        let p = *pal(cx);
         div()
             .id(SharedString::from(id))
             .h(px(22.0))
@@ -849,16 +995,16 @@ impl AppState {
             .gap(px(5.0))
             .rounded(px(3.0))
             .text_size(px(11.5))
-            .bg(if active { BG_SEL } else { TRANSPARENT })
-            .text_color(if active { FG_BRIGHT } else { FG_DIM })
-            .when(!active, |c| c.hover(|s| s.bg(BG_HOVER).text_color(FG)))
+            .bg(if active { p.sel } else { TRANSPARENT })
+            .text_color(if active { p.fg_bright } else { p.fg_dim })
+            .when(!active, |c| c.hover(|s| s.bg(p.hover).text_color(p.fg)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
             .child(label)
             .child(
                 div()
                     .font_family("Menlo")
                     .text_size(px(9.5))
-                    .text_color(if active { FG_BRIGHT } else { FG_FAINT })
+                    .text_color(if active { p.fg_bright } else { p.fg_faint })
                     .child(SharedString::from(count.to_string())),
             )
     }
@@ -872,6 +1018,7 @@ impl AppState {
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
+        let p = *pal(cx);
         div()
             .id(SharedString::from(id))
             .w(px(24.0))
@@ -880,9 +1027,9 @@ impl AppState {
             .items_center()
             .justify_center()
             .rounded(px(3.0))
-            .bg(if active { BG_SEL } else { TRANSPARENT })
-            .text_color(if active { FG_BRIGHT } else { FG_DIM })
-            .when(!active, |c| c.hover(|s| s.bg(BG_HOVER).text_color(FG)))
+            .bg(if active { p.sel } else { TRANSPARENT })
+            .text_color(if active { p.fg_bright } else { p.fg_dim })
+            .when(!active, |c| c.hover(|s| s.bg(p.hover).text_color(p.fg)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
             .child(Icon::new(icon).with_size(px(13.0)))
     }
@@ -899,6 +1046,7 @@ impl AppState {
         cx: &Context<Self>,
         on_click: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> gpui::Stateful<gpui::Div> {
+        let p = *pal(cx);
         div()
             .id(SharedString::from(id))
             .h(px(30.0))
@@ -908,8 +1056,8 @@ impl AppState {
             .items_center()
             .gap(px(8.0))
             .rounded(px(6.0))
-            .bg(if active { BG_SEL } else { TRANSPARENT })
-            .when(!active, |r| r.hover(|s| s.bg(BG_HOVER)))
+            .bg(if active { p.sel } else { TRANSPARENT })
+            .when(!active, |r| r.hover(|s| s.bg(p.hover)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
             .child(
                 div()
@@ -937,7 +1085,7 @@ impl AppState {
                     .flex_1()
                     .truncate()
                     .text_size(px(12.5))
-                    .text_color(if active { FG_BRIGHT } else { FG })
+                    .text_color(if active { p.fg_bright } else { p.fg })
                     .child(SharedString::from(label)),
             )
             .child(
@@ -945,35 +1093,38 @@ impl AppState {
                     .font_family("Menlo")
                     .flex_none()
                     .text_size(px(10.0))
-                    .text_color(if active { FG_BRIGHT } else { FG_FAINT })
+                    .text_color(if active { p.fg_bright } else { p.fg_faint })
                     .child(SharedString::from(count.to_string())),
             )
     }
 
     /* 详情分区面板：淡淡的凸起底，避免整栏松散。 */
-    fn section_panel(&self, label: &'static str, content: gpui::AnyElement) -> gpui::Div {
+    fn section_panel(&self, label: &'static str, content: gpui::AnyElement, cx: &App) -> gpui::Div {
+        let p = *pal(cx);
         div()
             .flex()
             .flex_col()
             .gap_1p5()
             .p(px(10.0))
             .rounded(px(6.0))
-            .bg(rgba_hex(0xffffff, 0.03))
+            .bg(p.panel)
             .border_1()
-            .border_color(rgba_hex(0xffffff, 0.05))
-            .child(self.section_label(label))
+            .border_color(p.panel_border)
+            .child(self.section_label(label, cx))
             .child(content)
     }
 
-    fn section_label(&self, text: &'static str) -> gpui::Div {
+    fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
+        let p = *pal(cx);
         div()
             .text_size(px(10.0))
             .font_weight(FontWeight::BOLD)
-            .text_color(FG_FAINT)
+            .text_color(p.fg_faint)
             .child(text)
     }
 
-    fn meta_line(&self, label: &'static str, value: String) -> gpui::Div {
+    fn meta_line(&self, label: &'static str, value: String, cx: &App) -> gpui::Div {
+        let p = *pal(cx);
         div()
             .flex()
             .items_center()
@@ -983,7 +1134,7 @@ impl AppState {
             .child(
                 div()
                     .text_size(px(11.5))
-                    .text_color(FG_DIM)
+                    .text_color(p.fg_dim)
                     .child(label),
             )
             .child(
@@ -992,7 +1143,7 @@ impl AppState {
                     .min_w_0()
                     .truncate()
                     .text_size(px(10.5))
-                    .text_color(FG)
+                    .text_color(p.fg)
                     .child(SharedString::from(value)),
             )
     }
@@ -1006,6 +1157,11 @@ impl AppState {
         show_in_finder: bool,
         cx: &Context<Self>,
     ) -> gpui::Div {
+        let pal_p = *pal(cx);
+        let p_fg_dim = pal_p.fg_dim;
+        let p_fg_faint = pal_p.fg_faint;
+        let p_link = pal_p.link;
+        let p_fg_bright = pal_p.fg_bright;
         let has_path = !path.is_empty();
         div()
             .flex()
@@ -1019,7 +1175,7 @@ impl AppState {
                     .truncate()
                     .font_family("Menlo")
                     .text_size(px(10.5))
-                    .text_color(if has_path { FG_DIM } else { FG_FAINT })
+                    .text_color(if has_path { p_fg_dim } else { p_fg_faint })
                     .child(SharedString::from(if has_path {
                         path.to_string()
                     } else {
@@ -1032,12 +1188,12 @@ impl AppState {
                         .id(SharedString::from(format!("{}-copy", id_seed)))
                         .font_family("Menlo")
                         .text_size(px(9.5))
-                        .text_color(LINK)
-                        .hover(|s| s.text_color(FG_BRIGHT))
+                        .text_color(p_link)
+                        .hover(|s| s.text_color(p_fg_bright))
                         .on_click({
-                            let p = path.to_string();
+                            let copied = path.to_string();
                             cx.listener(move |state, _e, _w, cx| {
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(p.clone()));
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
                                 state.set_message(MessageKind::Ok, "已复制路径");
                                 cx.notify();
                             })
@@ -1051,12 +1207,12 @@ impl AppState {
                         .id(SharedString::from(format!("{}-show", id_seed)))
                         .font_family("Menlo")
                         .text_size(px(9.5))
-                        .text_color(LINK)
-                        .hover(|s| s.text_color(FG_BRIGHT))
+                        .text_color(p_link)
+                        .hover(|s| s.text_color(p_fg_bright))
                         .on_click({
-                            let p = path.to_string();
+                            let opened = path.to_string();
                             cx.listener(move |state, _e, _w, cx| {
-                                reveal_in_file_manager(&p);
+                                reveal_in_file_manager(&opened);
                                 state.set_message(MessageKind::Ok, "已在文件管理器中显示");
                                 cx.notify();
                             })
@@ -1068,6 +1224,7 @@ impl AppState {
 
     /* 技能详情面板。 */
     fn render_detail(&self, entry: &CatalogLine, cx: &Context<Self>) -> gpui::AnyElement {
+        let p = *pal(cx);
         let unit_path = if entry.stored && !self.store_home.is_empty() {
             format!("{}/units/{}", self.store_home, entry.id)
         } else {
@@ -1077,7 +1234,7 @@ impl AppState {
         let pills: gpui::AnyElement = if entry.agents.is_empty() {
             div()
                 .text_size(px(11.0))
-                .text_color(FG_FAINT)
+                .text_color(p.fg_faint)
                 .child("仅范围 all 时可见")
                 .into_any_element()
         } else {
@@ -1093,12 +1250,12 @@ impl AppState {
                         .px_2()
                         .py(px(3.0))
                         .rounded(px(3.0))
-                        .bg(BG_INPUT)
+                        .bg(p.input)
                         .child(div().size(px(6.0)).rounded_full().bg(self.agent_color(id)))
                         .child(
                             div()
                                 .text_size(px(11.0))
-                                .text_color(FG)
+                                .text_color(p.fg)
                                 .child(SharedString::from(self.agent_label(id))),
                         )
                 }))
@@ -1121,7 +1278,7 @@ impl AppState {
                     .pt_1()
                     .font_family("Menlo")
                     .text_size(px(9.0))
-                    .text_color(FG_FAINT)
+                    .text_color(p.fg_faint)
                     .child(SharedString::from(format!(
                         "+{} 个位置",
                         entry.sources.len() - 4
@@ -1134,9 +1291,9 @@ impl AppState {
             .w(px(DETAIL_WIDTH))
             .flex_none()
             .h_full()
-            .bg(BG_SIDE)
+            .bg(p.side)
             .border_l_1()
-            .border_color(LINE)
+            .border_color(p.line)
             .px(px(18.0))
             .pt(px(14.0))
             .pb(px(20.0))
@@ -1161,11 +1318,11 @@ impl AppState {
                                     .rounded(px(3.0))
                                     .text_size(px(10.0))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(if entry.stored { GREEN } else { AMBER })
+                                    .text_color(if entry.stored { p.green } else { p.amber })
                                     .bg(if entry.stored {
-                                        rgba_hex(0x89d185, 0.12)
+                                        with_alpha(p.green, 0.12)
                                     } else {
-                                        rgba_hex(0xcca700, 0.12)
+                                        with_alpha(p.amber, 0.12)
                                     })
                                     .child(if entry.stored { "已入库" } else { "仅目录" }),
                             )
@@ -1174,7 +1331,7 @@ impl AppState {
                                 div()
                                     .font_family("Menlo")
                                     .text_size(px(9.5))
-                                    .text_color(FG_FAINT)
+                                    .text_color(p.fg_faint)
                                     .child(SharedString::from(
                                         entry.id.chars().take(12).collect::<String>(),
                                     )),
@@ -1188,8 +1345,8 @@ impl AppState {
                                     .items_center()
                                     .justify_center()
                                     .rounded(px(3.0))
-                                    .text_color(FG_DIM)
-                                    .hover(|s| s.bg(BG_HOVER).text_color(FG_BRIGHT))
+                                    .text_color(p.fg_dim)
+                                    .hover(|s| s.bg(p.hover).text_color(p.fg_bright))
                                     .on_click(cx.listener(move |state, _e, _w, cx| {
                                         state.selected = None;
                                         cx.notify();
@@ -1202,14 +1359,14 @@ impl AppState {
                             .text_size(px(19.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .line_height(px(26.0))
-                            .text_color(FG_BRIGHT)
+                            .text_color(p.fg_bright)
                             .child(SharedString::from(entry.name.clone())),
                     )
                     .child(
                         div()
                             .text_size(px(12.0))
                             .line_height(px(19.0))
-                            .text_color(FG_DIM)
+                            .text_color(p.fg_dim)
                             .child(SharedString::from(if entry.description.is_empty() {
                                 "暂无描述".to_string()
                             } else {
@@ -1222,32 +1379,36 @@ impl AppState {
                 div()
                     .flex()
                     .flex_col()
-                    .child(self.meta_line("大小", format_bytes(entry.size)))
+                    .child(self.meta_line("大小", format_bytes(entry.size), cx))
                     .child(self.meta_line(
                         "哈希",
                         entry.id.chars().take(16).collect::<String>(),
+                        cx,
                     ))
-                    .child(self.meta_line("副本数", entry.sources.len().to_string()))
+                    .child(self.meta_line("副本数", entry.sources.len().to_string(), cx))
                     .into_any_element(),
+                cx,
             ))
-            .child(self.section_panel("可见 agent", pills))
-            .child(self.section_panel("来源位置", sources_block.into_any_element()))
+            .child(self.section_panel("可见 agent", pills, cx))
+            .child(self.section_panel("来源位置", sources_block.into_any_element(), cx))
             .child(self.section_panel(
                 "仓库位置",
                 self.path_row("store".into(), &unit_path, "尚未复制进仓库", true, cx)
                     .into_any_element(),
+                cx,
             ))
-            .child(self.section_panel("文件清单", self.render_file_listing(entry)))
+            .child(self.section_panel("文件清单", self.render_file_listing(entry, cx), cx))
             .into_any_element()
     }
 
     /* 「文件清单」内容：等宽字体，目录带「/」后缀，二级缩进。缓存由
      * render() 里的 ensure_file_listing 保证只读一次。 */
-    fn render_file_listing(&self, entry: &CatalogLine) -> gpui::AnyElement {
+    fn render_file_listing(&self, entry: &CatalogLine, cx: &App) -> gpui::AnyElement {
+        let p = *pal(cx);
         let Some(dir) = self.skill_base_dir(entry) else {
             return div()
                 .text_size(px(11.0))
-                .text_color(FG_FAINT)
+                .text_color(p.fg_faint)
                 .child("无法读取目录")
                 .into_any_element();
         };
@@ -1267,7 +1428,7 @@ impl AppState {
                             .pl(if e.depth == 2 { px(14.0) } else { px(0.0) })
                             .font_family("Menlo")
                             .text_size(px(10.5))
-                            .text_color(if e.is_dir { FG_DIM } else { FG_FAINT })
+                            .text_color(if e.is_dir { p.fg_dim } else { p.fg_faint })
                             .truncate()
                             .child(SharedString::from(label)),
                     );
@@ -1276,12 +1437,12 @@ impl AppState {
             }
             Some(Some(_)) => div()
                 .text_size(px(11.0))
-                .text_color(FG_FAINT)
+                .text_color(p.fg_faint)
                 .child("空目录")
                 .into_any_element(),
             _ => div()
                 .text_size(px(11.0))
-                .text_color(FG_FAINT)
+                .text_color(p.fg_faint)
                 .child("无法读取目录")
                 .into_any_element(),
         }
@@ -1296,6 +1457,7 @@ impl AppState {
         selected: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let p = *pal(cx);
         let mut dots = div().flex().items_center().gap_1().flex_none();
         let max_dots = 6usize;
         for agent in self.agents.iter().take(max_dots) {
@@ -1307,7 +1469,7 @@ impl AppState {
                     .bg(if lit {
                         self.agent_color(&agent.id)
                     } else {
-                        rgba_hex(0x3a3a3a, 1.0)
+                        p.dot_off
                     }),
             );
         }
@@ -1315,7 +1477,7 @@ impl AppState {
             dots = dots.child(
                 div()
                     .text_size(px(9.0))
-                    .text_color(FG_FAINT)
+                    .text_color(p.fg_faint)
                     .child(SharedString::from(format!(
                         "+{}",
                         self.agents.len() - max_dots
@@ -1328,6 +1490,7 @@ impl AppState {
             entry.agents.first().map(|s| s.as_str()).unwrap_or(""),
         );
         let letter = entry.name.chars().next().unwrap_or('?').to_string();
+        let fb_bg = p.badge_bg;
         let thumb = self
             .skill_base_dir(entry)
             .and_then(|dir| self.card_thumbs.get(&dir))
@@ -1340,11 +1503,11 @@ impl AppState {
                 .object_fit(ObjectFit::Cover)
                 .with_fallback({
                     let letter = letter.clone();
-                    move || initial_badge(letter.clone(), badge_color).into_any_element()
+                    move || initial_badge(letter.clone(), badge_color, fb_bg).into_any_element()
                 })
                 .into_any_element()
         } else {
-            initial_badge(letter, badge_color).into_any_element()
+            initial_badge(letter, badge_color, p.badge_bg).into_any_element()
         };
 
         div()
@@ -1358,10 +1521,10 @@ impl AppState {
             .p(px(12.0))
             .rounded(px(6.0))
             .border_1()
-            .border_color(if selected { FOCUS_RING } else { LINE })
-            .bg(if selected { BG_SEL } else { BG_CARD })
+            .border_color(if selected { p.focus } else { p.line })
+            .bg(if selected { p.sel } else { p.card })
             .when(!selected, |c| {
-                c.hover(|s| s.bg(BG_HOVER).border_color(rgba_hex(0x4a4a4a, 1.0)))
+                c.hover(|s| s.bg(p.hover).border_color(p.card_hover_border))
             })
             .on_click(cx.listener(move |state, _e, _w, cx| {
                 state.select(Some(ix), cx);
@@ -1379,7 +1542,7 @@ impl AppState {
                             .truncate()
                             .text_size(px(12.5))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(FG)
+                            .text_color(p.fg)
                             .child(SharedString::from(entry.name.clone())),
                     )
                     .child(
@@ -1389,11 +1552,11 @@ impl AppState {
                             .rounded(px(3.0))
                             .font_family("Menlo")
                             .text_size(px(9.0))
-                            .text_color(if entry.stored { GREEN } else { AMBER })
+                            .text_color(if entry.stored { p.green } else { p.amber })
                             .bg(if entry.stored {
-                                rgba_hex(0x89d185, 0.12)
+                                with_alpha(p.green, 0.12)
                             } else {
-                                rgba_hex(0xcca700, 0.12)
+                                with_alpha(p.amber, 0.12)
                             })
                             .child(if entry.stored { "已入库" } else { "仅目录" }),
                     ),
@@ -1402,7 +1565,7 @@ impl AppState {
                 div()
                     .truncate()
                     .text_size(px(11.0))
-                    .text_color(FG_DIM)
+                    .text_color(p.fg_dim)
                     .child(SharedString::from(entry.description.clone())),
             )
             .child(
@@ -1417,7 +1580,7 @@ impl AppState {
                             .font_family("Menlo")
                             .flex_none()
                             .text_size(px(9.5))
-                            .text_color(FG_FAINT)
+                            .text_color(p.fg_faint)
                             .child(SharedString::from(format_bytes(entry.size))),
                     ),
             )
@@ -1433,6 +1596,7 @@ impl AppState {
         selected: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let p = *pal(cx);
         let tile_color = self.agent_color(
             entry.agents.first().map(|s| s.as_str()).unwrap_or(""),
         );
@@ -1447,7 +1611,7 @@ impl AppState {
                     .bg(if lit {
                         self.agent_color(&agent.id)
                     } else {
-                        rgba_hex(0x3a3a3a, 1.0)
+                        p.dot_off
                     }),
             );
         }
@@ -1455,7 +1619,7 @@ impl AppState {
             dots = dots.child(
                 div()
                     .text_size(px(9.0))
-                    .text_color(FG_FAINT)
+                    .text_color(p.fg_faint)
                     .child(SharedString::from(format!(
                         "+{}",
                         self.agents.len() - max_dots
@@ -1472,9 +1636,9 @@ impl AppState {
             .gap_3()
             .px(px(12.0))
             .border_b_1()
-            .border_color(rgba_hex(0x2b2b2b, 1.0))
-            .bg(if selected { BG_SEL } else { TRANSPARENT })
-            .when(!selected, |r| r.hover(|s| s.bg(BG_HOVER)))
+            .border_color(p.row_border)
+            .bg(if selected { p.sel } else { TRANSPARENT })
+            .when(!selected, |r| r.hover(|s| s.bg(p.hover)))
             .on_click(cx.listener(move |state, _e, _w, cx| {
                 state.select(Some(ix), cx);
             }))
@@ -1515,14 +1679,14 @@ impl AppState {
                             .truncate()
                             .text_size(px(12.5))
                             .font_weight(FontWeight::MEDIUM)
-                            .text_color(FG)
+                            .text_color(p.fg)
                             .child(SharedString::from(entry.name.clone())),
                     )
                     .child(
                         div()
                             .truncate()
                             .text_size(px(10.5))
-                            .text_color(FG_DIM)
+                            .text_color(p.fg_dim)
                             .child(SharedString::from(entry.description.clone())),
                     ),
             )
@@ -1533,7 +1697,7 @@ impl AppState {
                     .flex_none()
                     .font_family("Menlo")
                     .text_size(px(9.5))
-                    .text_color(FG_FAINT)
+                    .text_color(p.fg_faint)
                     .child(SharedString::from(format_bytes(entry.size))),
             )
             .child(
@@ -1541,7 +1705,7 @@ impl AppState {
                     .w(px(52.0))
                     .flex_none()
                     .text_size(px(10.0))
-                    .text_color(if entry.stored { GREEN } else { AMBER })
+                    .text_color(if entry.stored { p.green } else { p.amber })
                     .child(if entry.stored { "已入库" } else { "仅目录" }),
             )
             .into_any_element()
@@ -1550,6 +1714,7 @@ impl AppState {
 
 impl gpui::Render for AppState {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let p = *pal(cx);
         /* kit Input 持有过滤文本；每次渲染同步。 */
         if let Some(state) = &self.search_state {
             self.query = state.read(cx).value().to_string();
@@ -1573,7 +1738,7 @@ impl gpui::Render for AppState {
                     div()
                         .text_size(px(12.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(FG_BRIGHT)
+                        .text_color(p.fg_bright)
                         .child("StarTide — 技能管理"),
                 )
                 .child(div().flex_1())
@@ -1582,6 +1747,28 @@ impl gpui::Render for AppState {
                         .flex()
                         .items_center()
                         .gap(px(2.0))
+                        .child(self.icon_action(
+                            "t-mode", gpui_kit::assets::IconName::SunMoon, "深色 / 浅色主题切换", cx,
+                            |state, cx| {
+                                state.theme_pref.dark = !state.theme_pref.dark;
+                                apply_theme(state.theme_pref, cx);
+                                save_pref(state.theme_pref);
+                                let tip = if state.theme_pref.dark { "已切换到深色主题" } else { "已切换到浅色主题" };
+                                state.set_message(MessageKind::Ok, tip);
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.icon_action(
+                            "t-accent", gpui_kit::assets::IconName::Palette, "强调色切换（青 / 蓝 / 紫 / 琥珀）", cx,
+                            |state, cx| {
+                                state.theme_pref.accent = (state.theme_pref.accent + 1) % ACCENTS.len();
+                                apply_theme(state.theme_pref, cx);
+                                save_pref(state.theme_pref);
+                                let name = ACCENTS[state.theme_pref.accent].0;
+                                state.set_message(MessageKind::Ok, format!("强调色：{}", name));
+                                cx.notify();
+                            },
+                        ))
                         .child(self.icon_action(
                             "t-scan", IconName::HardDrive, "扫描本机", cx,
                             |state, cx| state.run("scan", vec!["scan", "--json"], true, cx),
@@ -1621,7 +1808,7 @@ impl gpui::Render for AppState {
             .px(px(16.0))
             .h(px(44.0))
             .border_b_1()
-            .border_color(LINE)
+            .border_color(p.line)
             .child(
                 div()
                     .id("searchbox")
@@ -1633,7 +1820,7 @@ impl gpui::Render for AppState {
                     .items_center()
                     .gap(px(6.0))
                     .rounded(px(3.0))
-                    .bg(BG_INPUT)
+                    .bg(p.input)
                     .on_mouse_down(gpui::MouseButton::Left, {
                         let st = self.search_state.clone();
                         move |_e, window, cx| {
@@ -1642,7 +1829,7 @@ impl gpui::Render for AppState {
                             }
                         }
                     })
-                    .child(Icon::new(IconName::Search).with_size(px(13.0)).text_color(FG_FAINT))
+                    .child(Icon::new(IconName::Search).with_size(px(13.0)).text_color(p.fg_faint))
                     .children(self.search_state.iter().map(|state| {
                         Input::new(state).appearance(false).h_full().flex_1()
                     })),
@@ -1650,7 +1837,7 @@ impl gpui::Render for AppState {
             .child(
                 div()
                     .text_size(px(11.0))
-                    .text_color(FG_FAINT)
+                    .text_color(p.fg_faint)
                     .child(SharedString::from(format!(
                         "{}/{}",
                         filtered.len(),
@@ -1701,9 +1888,9 @@ impl gpui::Render for AppState {
             .w(px(208.0))
             .flex_none()
             .h_full()
-            .bg(BG_SIDE)
+            .bg(p.side)
             .border_r_1()
-            .border_color(LINE)
+            .border_color(p.line)
             .overflow_y_scrollbar()
             .child(
                 div()
@@ -1716,14 +1903,14 @@ impl gpui::Render for AppState {
                         div()
                             .text_size(px(10.5))
                             .font_weight(FontWeight::BOLD)
-                            .text_color(FG_BRIGHT)
+                            .text_color(p.fg_bright)
                             .child("智能体"),
                     )
                     .child(
                         div()
                             .font_family("Menlo")
                             .text_size(px(9.0))
-                            .text_color(FG_FAINT)
+                            .text_color(p.fg_faint)
                             .child(SharedString::from(self.agents.len().to_string())),
                     ),
             );
@@ -1731,7 +1918,7 @@ impl gpui::Render for AppState {
             "agent-all".into(),
             "全部".into(),
             "✦".into(),
-            rgba_hex(0x2dd4bf, 1.0),
+            p.accent,
             filtered.len(),
             self.agent_filter.is_none(),
             cx,
@@ -1796,11 +1983,11 @@ impl gpui::Render for AppState {
                 .items_center()
                 .justify_center()
                 .gap_2()
-                .child(Icon::new(IconName::Inbox).with_size(px(30.0)).text_color(FG_FAINT))
+                .child(Icon::new(IconName::Inbox).with_size(px(30.0)).text_color(p.fg_faint))
                 .child(
                     div()
                         .text_size(px(13.0))
-                        .text_color(FG_DIM)
+                        .text_color(p.fg_dim)
                         .child(if self.skills.is_empty() {
                             "目录还是空的"
                         } else {
@@ -1840,7 +2027,7 @@ impl gpui::Render for AppState {
             .flex_col()
             .bg(TRANSPARENT)
             .border_l_1()
-            .border_color(LINE)
+            .border_color(p.line)
             .overflow_hidden()
             .child(
                 div()
@@ -1850,11 +2037,11 @@ impl gpui::Render for AppState {
                     .h(px(30.0))
                     .px(px(12.0))
                     .border_b_1()
-                    .border_color(LINE)
+                    .border_color(p.line)
                     .child(
                         div()
                             .text_size(px(11.5))
-                            .text_color(FG_DIM)
+                            .text_color(p.fg_dim)
                             .child(SharedString::from(match &self.agent_filter {
                                 Some(id) => format!(
                                     "当前：{} · {} 个技能",
@@ -1889,10 +2076,10 @@ impl gpui::Render for AppState {
             .items_center()
             .gap_3()
             .px(px(12.0))
-            .bg(rgba_hex(0x18181b, 0.85))
+            .bg(p.statusbar_bg)
             .border_t_1()
-            .border_color(LINE)
-            .text_color(FG_DIM)
+            .border_color(p.line)
+            .text_color(p.fg_dim)
             .text_size(px(11.0))
             .child(SharedString::from(format!(
                 "✦ skillctl · {} 技能 · {} agent · {}",
@@ -1917,7 +2104,7 @@ impl gpui::Render for AppState {
             .flex_col()
             .size_full()
             .bg(TRANSPARENT)
-            .text_color(FG)
+            .text_color(p.fg)
             .font_family(ui_font())
             .on_key_down(cx.listener(Self::on_root_key))
             .child(titlebar)
@@ -2058,15 +2245,10 @@ fn main() {
         .with_assets(Assets)
         .run(|cx| {
             init(cx);
-            /* 深色主题：让 kit 组件（ghost 按钮 hover 等）融入 VS Code 风格。 */
-            Theme::change(ThemeMode::Dark, None, cx);
-            /* 品牌色：teal。kit 的 primary 驱动按钮激活态、输入框焦点环等。 */
-            {
-                let theme = Theme::global_mut(cx);
-                theme.primary = rgb(0x2dd4bf).into();
-                theme.accent = rgb(0x2dd4bf).into();
-            }
-            let bounds = Bounds::centered(None, size(px(1200.0), px(780.0)), cx);
+            /* 主题：从偏好文件恢复（深/浅 × 强调色），并同步 kit 品牌色。 */
+            apply_theme(load_pref(), cx);
+            /* 默认窗口：侧栏 + 4 列卡片墙刚好铺满；其他尺寸下卡片等比自适应。 */
+            let bounds = Bounds::centered(None, size(px(1320.0), px(780.0)), cx);
             open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
