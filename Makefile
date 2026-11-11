@@ -74,6 +74,23 @@ app:
 	@cp gui/resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	@echo "built ./$(APP): Contents/MacOS/startide, Contents/Info.plist, Contents/Resources/AppIcon.icns"
 
+# Install locally: the bundle to /Applications, the CLI engine onto PATH.
+# BIN_DIR is auto-detected (first user-writable dir in PATH); override with
+# `make install BIN_DIR=...`.
+BIN_DIR ?= $(shell for d in $(subst :, , $(PATH)); do [ -d "$$d" ] && [ -w "$$d" ] && echo "$$d" && break; done)
+install: app $(BIN)
+	@rm -rf /Applications/$(APP)
+	cp -R $(APP) /Applications/$(APP)
+	install -m 755 $(BIN) $(BIN_DIR)/skillctl
+	@codesign --force --deep -s - /Applications/$(APP) 2>/dev/null || true
+	@echo "installed: /Applications/$(APP)"
+	@echo "installed: $(BIN_DIR)/skillctl  (BIN_DIR=$(BIN_DIR))"
+
+uninstall:
+	@rm -rf /Applications/$(APP)
+	@rm -f $(BIN_DIR)/skillctl
+	@echo "uninstalled"
+
 clean:
 	rm -rf build
 	rm -rf $(APP)
