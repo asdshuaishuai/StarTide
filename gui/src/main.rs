@@ -23,6 +23,7 @@ use gpui_kit::assets::Assets;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{Disableable, Icon, IconName, Sizable, Theme, ThemeMode};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -51,7 +52,6 @@ const FG: Rgba = rgba_hex(0xcccccc, 1.0);
 const FG_BRIGHT: Rgba = rgba_hex(0xe7e7e7, 1.0);
 const FG_DIM: Rgba = rgba_hex(0x858585, 1.0);
 const FG_FAINT: Rgba = rgba_hex(0x6a6a6a, 1.0);
-const ACCENT: Rgba = rgba_hex(0x007acc, 1.0);
 const FOCUS_RING: Rgba = rgba_hex(0x007fd4, 1.0);
 const LINK: Rgba = rgba_hex(0x3794ff, 1.0);
 const GREEN: Rgba = rgba_hex(0x89d185, 1.0);
@@ -752,6 +752,21 @@ impl AppState {
             )
     }
 
+    /* 详情分区面板：淡淡的凸起底，避免整栏松散。 */
+    fn section_panel(&self, label: &'static str, content: gpui::AnyElement) -> gpui::Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .p(px(10.0))
+            .rounded(px(6.0))
+            .bg(rgba_hex(0xffffff, 0.03))
+            .border_1()
+            .border_color(rgba_hex(0xffffff, 0.05))
+            .child(self.section_label(label))
+            .child(content)
+    }
+
     fn section_label(&self, text: &'static str) -> gpui::Div {
         div()
             .text_size(px(10.0))
@@ -892,11 +907,7 @@ impl AppState {
                 .into_any_element()
         };
 
-        let mut sources_block = div()
-            .flex()
-            .flex_col()
-            .gap_0p5()
-            .child(self.section_label("来源位置"));
+        let mut sources_block = div().flex().flex_col().gap_0p5();
         for (i, source) in entry.sources.iter().take(4).enumerate() {
             sources_block = sources_block.child(self.path_row(
                 format!("src-{}", i),
@@ -925,13 +936,13 @@ impl AppState {
             .w(px(DETAIL_WIDTH))
             .flex_none()
             .h_full()
-            .overflow_y_scroll()
             .bg(BG_SIDE)
             .border_l_1()
             .border_color(LINE)
             .px(px(18.0))
             .pt(px(14.0))
             .pb(px(20.0))
+            .overflow_y_scrollbar()
             .flex()
             .flex_col()
             .gap_3()
@@ -1008,42 +1019,26 @@ impl AppState {
                             })),
                     ),
             )
-            .child(
+            .child(self.section_panel(
+                "元信息",
                 div()
                     .flex()
                     .flex_col()
-                    .gap_1()
-                    .child(self.section_label("元信息"))
                     .child(self.meta_line("大小", format_bytes(entry.size)))
                     .child(self.meta_line(
                         "哈希",
                         entry.id.chars().take(16).collect::<String>(),
                     ))
-                    .child(self.meta_line("副本数", entry.sources.len().to_string())),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(self.section_label("可见 agent"))
-                    .child(pills),
-            )
-            .child(sources_block)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_0p5()
-                    .child(self.section_label("仓库位置"))
-                    .child(self.path_row(
-                        "store".into(),
-                        &unit_path,
-                        "尚未复制进仓库",
-                        true,
-                        cx,
-                    )),
-            )
+                    .child(self.meta_line("副本数", entry.sources.len().to_string()))
+                    .into_any_element(),
+            ))
+            .child(self.section_panel("可见 agent", pills))
+            .child(self.section_panel("来源位置", sources_block.into_any_element()))
+            .child(self.section_panel(
+                "仓库位置",
+                self.path_row("store".into(), &unit_path, "尚未复制进仓库", true, cx)
+                    .into_any_element(),
+            ))
             .into_any_element()
     }
 
@@ -1187,6 +1182,9 @@ impl AppState {
         selected: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let tile_color = self.agent_color(
+            entry.agents.first().map(|s| s.as_str()).unwrap_or(""),
+        );
         let mut dots = div().flex().items_center().gap_1().flex_none();
         let max_dots = 6usize;
         for agent in self.agents.iter().take(max_dots) {
@@ -1229,6 +1227,32 @@ impl AppState {
             .on_click(cx.listener(move |state, _e, _w, cx| {
                 state.select(Some(ix), cx);
             }))
+            .child(
+                div()
+                    .w(px(2.0))
+                    .h(px(20.0))
+                    .flex_none()
+                    .rounded_full()
+                    .bg(if selected { tile_color } else { TRANSPARENT }),
+            )
+            .child(
+                div()
+                    .w(px(20.0))
+                    .h(px(20.0))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.0))
+                    .font_family("Menlo")
+                    .text_size(px(10.0))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(tile_color)
+                    .bg(tint(tile_color))
+                    .child(SharedString::from(
+                        entry.name.chars().next().unwrap_or('?').to_string(),
+                    )),
+            )
             .child(
                 div()
                     .min_w_0()
@@ -1429,7 +1453,7 @@ impl gpui::Render for AppState {
             .bg(BG_SIDE)
             .border_r_1()
             .border_color(LINE)
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .child(
                 div()
                     .flex()
@@ -1540,7 +1564,12 @@ impl gpui::Render for AppState {
                     cards = cards.child(self.card(ix, *i, entry, effective == Some(ix), cx));
                 }
             }
-            div().id("cards-scroll").overflow_y_scroll().p(px(12.0)).child(cards).into_any_element()
+            div()
+                .id("cards-scroll")
+                .p(px(12.0))
+                .overflow_y_scrollbar()
+                .child(cards)
+                .into_any_element()
         } else {
             let mut rows = div().flex().flex_col();
             for (ix, i) in filtered.iter().enumerate() {
@@ -1548,7 +1577,7 @@ impl gpui::Render for AppState {
                     rows = rows.child(self.list_row(ix, *i, entry, effective == Some(ix), cx));
                 }
             }
-            div().id("rows-scroll").overflow_y_scroll().child(rows).into_any_element()
+            div().id("rows-scroll").overflow_y_scrollbar().child(rows).into_any_element()
         };
 
         let centre = div()
@@ -1595,14 +1624,16 @@ impl gpui::Render for AppState {
 
         /* =============================================== status bar */
         let status_bar = div()
-            .h(px(22.0))
+            .h(px(24.0))
             .flex_none()
             .flex()
             .items_center()
             .gap_3()
             .px(px(12.0))
-            .bg(ACCENT)
-            .text_color(rgba_hex(0xffffff, 1.0))
+            .bg(rgba_hex(0x18181b, 0.85))
+            .border_t_1()
+            .border_color(LINE)
+            .text_color(FG_DIM)
             .text_size(px(11.0))
             .child(SharedString::from(format!(
                 "✦ skillctl · {} 技能 · {} agent · {}",
@@ -1616,8 +1647,7 @@ impl gpui::Render for AppState {
                     .font_family("Menlo")
                     .text_size(px(9.5))
                     .child(SharedString::from(format!(
-                        "{} 范围 · {}K 搜索",
-                        if self.skill_view == SkillView::Cards { "卡片" } else { "列表" },
+                        "↑↓ 选择 · ↩ 详情 · {}K 搜索",
                         modifier_label()
                     ))),
             );
