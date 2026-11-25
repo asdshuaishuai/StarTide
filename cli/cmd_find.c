@@ -148,7 +148,8 @@ static const zh_en_pair GLOSSARY[] = {
     {"登录", "login"},        {"认证", "auth"},         {"加密", "encrypt"},
     {"密钥", "key"},          {"支付", "payment"},      {"订阅", "subscription"},
     {"通知", "notification"}, {"推送", "push"},         {"地图", "map"},
-    {"定位", "location"},     {"布局", "layout"},       {"样式", "style"},
+    {"定位", "location"},     {"布局", "layout"},       {"样式", "style"},       {"管理", "management manage manages managing"},
+    {"状态", "state"},        {"动画", "animation"},
     {"组件", "component"},    {"页面", "page"},         {"表单", "form"},
     {"按钮", "button"},       {"弹窗", "dialog"},       {"导航", "navigation"},
     {"图表", "chart"},        {"导出", "export"},       {"导入", "import"},
@@ -378,15 +379,15 @@ static size_t query_terms(const char *query, char ***out) {
 
 static void free_terms(char **terms, size_t count);
 
-/* Binary search over the index dictionary. */
-static int index_has_term(const sh_index *idx, const char *term) {
+/* Document frequency of a term; 0 when the dictionary has never seen it. */
+static uint32_t index_term_df(const sh_index *idx, const char *term) {
     size_t lo = 0;
     size_t hi = idx->term_count;
 
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
         int c = strcmp(idx->terms[mid].term, term);
-        if (c == 0) return 1;
+        if (c == 0) return idx->terms[mid].df;
         if (c < 0) lo = mid + 1;
         else hi = mid;
     }
@@ -394,22 +395,25 @@ static int index_has_term(const sh_index *idx, const char *term) {
 }
 
 /*
- * Replace every out-of-vocabulary CJK term with its glossary equivalent.
+ * Translate the *rare* CJK terms in the query into their glossary equivalents.
  *
- * This is the standard IR move for a cross-lingual gap: a term the index
- * has never seen cannot contribute anything, so translating it adds
- * recall; a term the index *does* contain is left exactly as the user
- * wrote it, because paraphrasing a term that already matches is how
- * expansion turns into noise. "godot 状态机 敌人 巡逻" therefore keeps
- * "godot" and turns the rest into state/enemy/patrol, instead of inflating
- * every document that happens to mention "state".
+ * The corpus is overwhelmingly English, so a Chinese word is either absent
+ * (df = 0) or appears only in the handful of Chinese-authored skills -
+ * accidental presence, not real coverage. Gating on "is the term in the
+ * dictionary" therefore failed exactly when it mattered: "状态管理" is
+ * present (a few skills are written in Chinese), so no translation fired,
+ * and the English skill that actually describes state management never
+ * matched. Gating on document frequency instead expands any CJK term that
+ * fewer than 1/20 of the documents contain, and leaves a term that half the
+ * corpus uses alone - that one really is the word the user meant.
  */
 static void augment_oov(const sh_index *idx, char **terms, size_t *io_unique) {
     size_t unique = *io_unique;
+    uint32_t rare_df = idx->doc_count / 20;
 
     for (size_t i = 0; i < unique && unique < FIND_MAX_TERMS; i++) {
         if (!token_is_cjk(terms[i])) continue;
-        if (index_has_term(idx, terms[i])) continue;
+        if (index_term_df(idx, terms[i]) > rare_df) continue;
         for (size_t g = 0; g < GLOSSARY_COUNT && unique < FIND_MAX_TERMS; g++) {
             const char *en;
             if (strcmp(GLOSSARY[g].zh, terms[i]) != 0) continue;
@@ -806,17 +810,27 @@ int cmd_show(int argc, char **argv) {
             for (size_t i = 0; i < strlen(needle) && n + 1 < sizeof(lower_needle); i++)
                 lower_needle[n++] = (char)tolower((unsigned char)needle[i]);
             lower_needle[n] = '\0';
-            for (size_t i = 0; i < cat.count && i < 400; i++) {
+            /* The whole catalog, not the first few hundred entries: a cap
+             * here silently dropped candidates, so "2 candidates" printed
+             * one row and the caller could not disambiguate at all. Each
+             * row carries a short description because an id prefix alone
+             * gives the caller nothing to choose on. */
+            for (size_t i = 0; i < cat.count; i++) {
                 const char *src = cat.entries[i].name ? cat.entries[i].name : "";
                 char lower[256];
+                char desc[160];
                 size_t k = 0;
+
                 for (; src[k] && k + 1 < sizeof(lower); k++)
                     lower[k] = (char)tolower((unsigned char)src[k]);
                 lower[k] = '\0';
-                if (strstr(lower, lower_needle) ||
-                    strncmp(cat.entries[i].id, needle, strlen(needle)) == 0)
-                    fprintf(stderr, "  %s  (%.16s)\n",
-                            cat.entries[i].name ? cat.entries[i].name : "", cat.entries[i].id);
+                if (strstr(lower, lower_needle) != NULL ||
+                    strncmp(cat.entries[i].id, needle, strlen(needle)) == 0) {
+                    one_line(cat.entries[i].description, desc, sizeof(desc), 90);
+                    fprintf(stderr, "  %s  (%.16s)  %s\n",
+                            cat.entries[i].name ? cat.entries[i].name : "",
+                            cat.entries[i].id, desc);
+                }
             }
             fprintf(stderr, "pass the exact name or a unit id to disambiguate\n");
         } else {
