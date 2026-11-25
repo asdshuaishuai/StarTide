@@ -135,6 +135,17 @@ typedef struct {
 /* IDF = ln(1 + (N - df + 0.5) / (df + 0.5)). */
 double sh_index_idf(uint32_t n, uint32_t df);
 
+/*
+ * Field term frequencies of `term` in `doc`, read straight from the
+ * postings so the reranker can weigh a candidate without touching any
+ * SKILL.md on disk. Returns 1 when the term occurs, 0 when it does not.
+ */
+int sh_index_tf(const sh_index *idx, size_t doc, const char *term,
+                uint32_t tf[SH_INDEX_FIELD_COUNT]);
+
+/* Document frequency of a term, or 0 when the dictionary lacks it. */
+uint32_t sh_index_df(const sh_index *idx, const char *term);
+
 /* BM25F contribution of one term:
  *   tf~ = sum_f w_f * tf_f / (1 - b_f + b_f * len_f / avg_f)
  *   score = IDF * tf~ / (k1 + tf~)

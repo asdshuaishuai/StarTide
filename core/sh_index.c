@@ -1185,6 +1185,50 @@ static int cmp_scored(const void *a, const void *b) {
     return 0;
 }
 
+uint32_t sh_index_df(const sh_index *idx, const char *term) {
+    const sh_index_term *hit;
+
+    if (!idx || !idx->loaded || !term || !term[0]) return 0;
+    hit = bsearch(term, idx->terms, idx->term_count, sizeof(sh_index_term), cmp_term_key);
+    return hit ? hit->df : 0;
+}
+
+int sh_index_tf(const sh_index *idx, size_t doc, const char *term,
+                uint32_t tf[SH_INDEX_FIELD_COUNT]) {
+    const sh_index_term *hit;
+    size_t pos, end;
+
+    if (tf)
+        for (int f = 0; f < SH_INDEX_FIELD_COUNT; f++) tf[f] = 0;
+    if (!idx || !idx->loaded || !term || !term[0] || !tf) return 0;
+    hit = bsearch(term, idx->terms, idx->term_count, sizeof(sh_index_term), cmp_term_key);
+    if (!hit) return 0;
+
+    pos = hit->postings_off;
+    end = pos + hit->postings_len;
+    if (end > idx->postings_size) return 0;
+    /* Postings are stored in document order, so stop as soon as the wanted
+     * document is found or passed. */
+    while (pos < end) {
+        uint32_t d = 0;
+        int bad = 0;
+
+        if (!rv_varint(idx->postings, end, &pos, &d)) break;
+        for (int f = 0; f < SH_INDEX_FIELD_COUNT; f++) {
+            if (!rv_varint(idx->postings, end, &pos, &tf[f])) {
+                bad = 1;
+                break;
+            }
+        }
+        if (bad) break;
+        if (d == doc) return 1;
+        if (d > doc) break;
+        for (int f = 0; f < SH_INDEX_FIELD_COUNT; f++) tf[f] = 0;
+    }
+    for (int f = 0; f < SH_INDEX_FIELD_COUNT; f++) tf[f] = 0;
+    return 0;
+}
+
 size_t sh_index_search(const sh_index *idx, const char *const *terms, size_t term_count,
                        size_t limit, sh_index_scored **out) {
     double *scores = NULL;

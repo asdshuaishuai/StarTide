@@ -154,7 +154,7 @@ skillctl show godot-ui --meta                    # 只要元信息，不取正�
 | **索引期去重** | 建索引时按归一化名字分组，正文 5-gram shingle Jaccard ≥ 0.8 的变体合并为一个文档并记 `variants` 数 | SkillRouter 的三层假负例过滤（同名/trigram Jaccard/向量余弦）单独贡献 +4.0pp |
 | **多路召回 + RRF** | 三路各取 top-100：① BM25F 正文 ② 元数据启发式（名字精确/子串、描述、路径）③ 稠密向量（配置了 embedder 才有）；用 RRF k=60 融合，因为 BM25 与余弦分数不可比 | ToolRet（ACL 2025）：query/tool 词面重叠仅 ROUGE-L 0.06，单路不够；Cormack/Clarke/Buettcher, SIGIR 2009（RRF 无需分数归一）；Lost in Implicit Routing（2610.18522）：1000 个干扰技能让已加载技能召回从 73.6% 掉到 27.4%，hybrid 预选在大规模最强 |
 | **名字精确 boost** | 仅当**整条查询**归一化后等于某个技能名时加分。前后缀 boost 试过并已移除：`blender ...` 这类查询会被同名技能顶到第一，压过内容更匹配的结果 | 论文观测到名字在浅层注意力里占 26%，是早期对齐信号；但只应作用于真正的精确匹配 |
-| **精排（预留）** | top-20 交给可插拔 listwise 精排（默认关闭） | SkillRouter：K=50 反而 −2.0pp；pointwise 重排崩到 0.433，必须 listwise |
+| **重排阶段（默认关）** | `--rerank` 对融合后的 top-20 用**索引里的字段词频**重排（IDF 加权覆盖 + 名字/富化覆盖），无需模型；实测本语料 0.850 / 名字权重版 0.812，均低于不重排的 0.912，故默认关 | SkillRouter：K=50 反而 −2.0pp，pointwise 重排崩到 0.433，必须 listwise；机制已就位，等可用的 listwise 模型 |
 
 规模上的意义：in-context 路由的拐点约在 N≈500（Enrich-Retrieve-Rank 实测 0.85→0.12），这台机器 766 个技能已经越过拐点；Progressive Disclosure 在 Skill-Use 上正确激活率只有 0.11%（Gavel, 2609.15982）。一层渐进披露足够，第二层更深的路由从不帮忙（REALM 2026, 2607.17598）——所以这里只有 `find` → `show` 两步。
 
@@ -218,7 +218,8 @@ embedding 也拿不到（全零）。Qwen3 这类 decoder 的 last-token 池化�
 
 ### 行为约定
 
-- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`（auto 默认只用词面+元数据两路；稠密路需显式 hybrid/vector，理由见上节实测）；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
+- `find` 默认输出前 8 条、每条一行；`--rerank` 可显式开启 top-20 重排（默认关，理由见上表）；
+  `--mode` 可选 `auto|bm25|vector|hybrid`（auto 默认只用词面+元数据两路；稠密路需显式 hybrid/vector，理由见上节实测）；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
 - `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**（同名不同内容在这类机器上很常见，静默取第一条是错误行为）
 - `find` **不按名字合并**结果：索引期已经合并了正文近重复的变体，剩下的同名条目是真正不同的内容，调用方需要两条并列才能按 id 选一个
 - `find`/`show` 只读，不触碰磁盘上的 skill；`index` 只写 store 下的 `index/`

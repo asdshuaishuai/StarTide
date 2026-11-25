@@ -46,6 +46,7 @@ static void print_help(void) {
         "  --install         with router-skill: write it into the agent root\n"
         "  --mode <m>        with find: auto, bm25, vector or hybrid\n"
         "  --explain         with find: show per-list ranks\n"
+        "  --rerank          with find: re-order the top-20 (off by default)\n"
         "  --rebuild         with index: force a full rebuild\n"
         "  --if-stale        with index: skip when the catalog has not moved\n"
         "  --version         print the version\n"
@@ -102,7 +103,8 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--no-hash") == 0 || strcmp(a, "--no-catalog") == 0 ||
             strcmp(a, "--stream") == 0 || strcmp(a, "--meta") == 0 ||
             strcmp(a, "--install") == 0 || strcmp(a, "--explain") == 0 ||
-            strcmp(a, "--rebuild") == 0 || strcmp(a, "--if-stale") == 0) {
+            strcmp(a, "--rebuild") == 0 || strcmp(a, "--if-stale") == 0 ||
+            strcmp(a, "--rerank") == 0 || strcmp(a, "--no-rerank") == 0) {
             rest[rest_count++] = argv[i];
             continue;
         }

@@ -61,6 +61,31 @@
 #define FIND_DENSE_WEIGHT 1.0
 
 /*
+ * Deterministic reranker, OFF by default. SkillRouter reranks its top-20
+ * with a listwise model; here the shortlist is re-ordered by evidence the
+ * fusion score does not carry - how much of the query's IDF mass a
+ * candidate matches and in which field.
+ *
+ * Measured, and it does not earn its place yet on this corpus:
+ *
+ *   rerank on (idf-heavy)  -> Hit@1 0.850
+ *   rerank on (name-heavy) -> Hit@1 0.812
+ *   rerank off             -> Hit@1 0.912
+ *
+ * The cause is visible in the features: IDF coverage rewards long,
+ * term-dense bodies over short precise skills, which is the opposite of
+ * what this corpus needs. Keep the stage (--rerank) for a corpus where it
+ * measures better, and for the day a listwise model replaces the hand
+ * weights - the plumbing (top-20 shortlist, field tf access) is the part
+ * that was missing.
+ */
+#define FIND_RERANK_DEPTH 20
+#define FIND_RR_IDF 0.55   /* IDF coverage across all fields */
+#define FIND_RR_NAME 0.30  /* share of query terms present in the name */
+#define FIND_RR_PROFILE 0.10
+#define FIND_RR_BODY 0.05
+
+/*
  * The glossary list is a weaker signal than a direct lexical match: a
  * translation catches documents that share no vocabulary with the query,
  * but a common translation ("state", "test") also matches dozens of
@@ -297,8 +322,39 @@ typedef struct {
     int vec_rank;
     int meta_rank; /* rank in the metadata heuristic list; 0 = absent */
     int name_rank; /* 1 = exact name, 2 = prefix, 0 = neither */
+    double rerank; /* deterministic reranker score, 0 when not applied */
     size_t variants;
 } fused_hit;
+
+/* Catalog entry -> index document, or -1 when the unit is not indexed. */
+static long doc_for_cat(const sh_index *idx, const sh_catalog *cat, long c) {
+    size_t n = 0;
+    if (!idx || !cat || c < 0) return -1;
+    {
+        const char *id = cat->entries[c].id;
+        size_t len = strlen(id);
+        if (len > 64) len = 64;
+        for (size_t d = 0; d < idx->doc_count; d++)
+            if (strncmp(idx->docs[d].id, id, len) == 0) return (long)d;
+    }
+    (void)n;
+    return -1;
+}
+
+/* Shortlist order: rerank evidence first, fused score as tiebreak. */
+static int cmp_rerank(const void *a, const void *b) {
+    const fused_hit *x = a;
+    const fused_hit *y = b;
+
+    if (x->rerank > y->rerank) return -1;
+    if (x->rerank < y->rerank) return 1;
+    if (x->rrf > y->rrf) return -1;
+    if (x->rrf < y->rrf) return 1;
+    if (x->cat < y->cat) return -1;
+    if (x->cat > y->cat) return 1;
+    return 0;
+}
+
 
 static int cmp_fused(const void *a, const void *b) {
     const fused_hit *x = a;
@@ -341,6 +397,7 @@ static void fuse_add(fused_hit *hits, size_t *count, size_t cap, long cat, size_
     hits[*count].vec_rank = vec_rank;
     hits[*count].meta_rank = meta_rank;
     hits[*count].name_rank = 0;
+    hits[*count].rerank = 0.0;
     hits[*count].variants = variants;
     if (bm25_rank > 0) hits[*count].rrf += 1.0 / (SH_INDEX_RRF_K + (double)bm25_rank);
     if (vec_rank > 0)
@@ -476,7 +533,7 @@ static void free_terms(char **terms, size_t count) {
 /* =============================================================== find */
 
 int cmd_find(int argc, char **argv) {
-    static const char *SKIP[] = {"--explain", "--mode", NULL};
+    static const char *SKIP[] = {"--explain", "--mode", "--rerank", "--no-rerank", NULL};
     const sh_config *cfg = cli_config();
     char *catalog_path = sh_store_catalog_path(cli_store_home());
     char *index_dir = sh_index_dir(cli_store_home());
@@ -485,6 +542,7 @@ int cmd_find(int argc, char **argv) {
     size_t limit = cli_limit > 0 ? (size_t)cli_limit : 8;
     const char *mode = "auto";
     int explain = 0;
+    int rerank = 0;
     int want_bm25 = 1;
     /* Dense retrieval is opt-in: see FIND_DENSE_WEIGHT for the numbers
      * behind that decision. `auto` stays lexical unless asked. */
@@ -496,6 +554,9 @@ int cmd_find(int argc, char **argv) {
     fused_hit hits[FIND_CANDIDATES * 2];
     size_t hit_count = 0;
     size_t shown = 0;
+    char **terms = NULL;
+    size_t terms_count = 0;
+    size_t terms_tok = 0;
 
     memset(&cat, 0, sizeof(cat));
     memset(&idx, 0, sizeof(idx));
@@ -503,6 +564,8 @@ int cmd_find(int argc, char **argv) {
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--explain") == 0) explain = 1;
+        else if (strcmp(argv[i], "--rerank") == 0) rerank = 1;
+        else if (strcmp(argv[i], "--no-rerank") == 0) rerank = 0;
         else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) mode = argv[++i];
         else if (strncmp(argv[i], "--mode=", 7) == 0) mode = argv[i] + 7;
     }
@@ -561,15 +624,17 @@ int cmd_find(int argc, char **argv) {
     }
 
     /* ---- lexical list: BM25F over the indexed bodies */
+    if (have_index && !terms_tok) {
+        terms_tok = query_terms(query, &terms);
+        terms_count = terms_tok;
+        if (terms_count > 0) augment_oov(&idx, terms, &terms_count);
+    }
     if (have_index) {
-        char **terms = NULL;
-        size_t term_count = query_terms(query, &terms);
         sh_index_scored *scored = NULL;
         size_t got = 0;
 
-        if (term_count > 0) augment_oov(&idx, terms, &term_count);
-        if (term_count > 0)
-            got = sh_index_search(&idx, (const char *const *)terms, term_count,
+        if (terms_count > 0)
+            got = sh_index_search(&idx, (const char *const *)terms, terms_count,
                                   FIND_CANDIDATES, &scored);
         for (size_t i = 0; i < got; i++) {
             long c = cat_index_for_id(&cat, idx.docs[scored[i].doc].id);
@@ -578,7 +643,6 @@ int cmd_find(int argc, char **argv) {
                          idx.docs[scored[i].doc].variants, (int)i + 1, 0, 0);
         }
         free(scored);
-        free_terms(terms, term_count);
     }
 
     /* ---- dense list: only when vectors exist and a model can encode the
@@ -720,6 +784,45 @@ int cmd_find(int argc, char **argv) {
     qsort(hits, hit_count, sizeof(fused_hit), cmp_fused);
 
     /*
+     * Rerank the shortlist on evidence the fusion score cannot see. RRF
+     * knows ranks; it does not know that one candidate contains the query's
+     * rare term while another only shares its common words.
+     */
+    if (rerank && have_index && hit_count > 1 && terms_count > 0) {
+        size_t depth = hit_count < FIND_RERANK_DEPTH ? hit_count : FIND_RERANK_DEPTH;
+        double idf_sum = 0.0;
+
+        for (size_t t = 0; t < terms_count; t++)
+            idf_sum += sh_index_idf(idx.doc_count, sh_index_df(&idx, terms[t]));
+
+        if (idf_sum > 0.0) {
+            for (size_t i = 0; i < depth; i++) {
+                long d = doc_for_cat(&idx, &cat, hits[i].cat);
+                double idf_cov = 0.0;
+                double name_cov = 0.0;
+                double profile_cov = 0.0;
+                double body_cov = 0.0;
+
+                if (d < 0) continue;
+                for (size_t t = 0; t < terms_count; t++) {
+                    uint32_t tf[SH_INDEX_FIELD_COUNT];
+                    double idf = sh_index_idf(idx.doc_count, sh_index_df(&idx, terms[t]));
+                    if (!sh_index_tf(&idx, (size_t)d, terms[t], tf)) continue;
+                    idf_cov += idf;
+                    if (tf[SH_INDEX_FIELD_NAME] > 0) name_cov += 1.0;
+                    if (tf[SH_INDEX_FIELD_PROFILE] > 0) profile_cov += 1.0;
+                    if (tf[SH_INDEX_FIELD_BODY] > 0) body_cov += 1.0;
+                }
+                hits[i].rerank = FIND_RR_IDF * (idf_cov / idf_sum) +
+                                 FIND_RR_NAME * (name_cov / (double)terms_count) +
+                                 FIND_RR_PROFILE * (profile_cov / (double)terms_count) +
+                                 FIND_RR_BODY * (body_cov / (double)terms_count);
+            }
+            qsort(hits, depth, sizeof(fused_hit), cmp_rerank);
+        }
+    }
+
+    /*
      * No name collapsing here. The index already merged units whose bodies
      * are near-identical, so any same-name pair still standing is genuinely
      * different work under one label - and the caller needs both rows to
@@ -760,6 +863,8 @@ int cmd_find(int argc, char **argv) {
                 sh_jw_num(&w, hits[i].meta_rank);
                 sh_jw_key(&w, "name_rank");
                 sh_jw_num(&w, hits[i].name_rank);
+                sh_jw_key(&w, "rerank");
+                sh_jw_numf(&w, hits[i].rerank);
             }
             sh_jw_obj_end(&w);
         }
@@ -778,13 +883,14 @@ int cmd_find(int argc, char **argv) {
             printf("%s%s — %s", e->name ? e->name : e->id, e->in_store ? " [stored]" : "", desc);
             if (hits[i].variants > 1) printf("  (+%zu variants)", hits[i].variants - 1);
             if (explain)
-                printf("  [rrf %.3f bm25 #%d meta #%d vec #%d name #%d]", hits[i].rrf,
-                       hits[i].bm25_rank, hits[i].meta_rank, hits[i].vec_rank,
-                       hits[i].name_rank);
+                printf("  [rrf %.3f rr %.3f bm25 #%d meta #%d vec #%d name #%d]",
+                       hits[i].rrf, hits[i].rerank, hits[i].bm25_rank, hits[i].meta_rank,
+                       hits[i].vec_rank, hits[i].name_rank);
             fputc('\n', stdout);
         }
     }
 
+    free_terms(terms, terms_count);
     sh_vectors_free(&vecs);
     sh_index_free(&idx);
     sh_catalog_free(&cat);
