@@ -16,6 +16,7 @@
 #include "sh_fs.h"
 #include "sh_index.h"
 #include "sh_json.h"
+#include "cli_embedder.h"
 
 static char *vectors_path(const char *store_home) {
     char *dir = sh_index_dir(store_home);
@@ -65,6 +66,8 @@ static char *compose_text(const sh_index_fields *f) {
 
 int cmd_embed(int argc, char **argv) {
     const char *embedder = getenv("SKILLCTL_EMBEDDER");
+    cli_embedder local;
+    int have_local;
     char *catalog_path;
     char *out_path;
     char *index_dir;
@@ -75,9 +78,17 @@ int cmd_embed(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    if (!embedder || !embedder[0]) {
-        cli_error("skillctl: SKILLCTL_EMBEDDER is not set");
-        cli_error("example: SKILLCTL_EMBEDDER='python3 embed.py' skillctl embed");
+    /* Prefer the in-process ONNX model; fall back to an external command
+     * only when the operator configured one explicitly. */
+    memset(&local, 0, sizeof(local));
+    have_local = cli_embedder_open(&local, cli_store_home());
+    if (!have_local && (!embedder || !embedder[0])) {
+        char *dir = cli_embedder_model_dir(cli_store_home());
+        cli_error("skillctl: no local ONNX model found");
+        cli_error("expected: %s/{model_qint8.onnx,vocab.txt}", dir ? dir : "?");
+        cli_error("or set SKILLCTL_ONNX_MODEL to a directory holding them");
+        cli_error("or set SKILLCTL_EMBEDDER to an external embedder command");
+        free(dir);
         return 1;
     }
 
@@ -124,10 +135,14 @@ int cmd_embed(int argc, char **argv) {
             ok = 0;
             break;
         }
-        if (!sh_index_embed_text(embedder, index_dir, text, &vec, &dim)) {
-            cli_error("skillctl: embedder failed on %s", e->name ? e->name : e->id);
+        if (have_local) {
+            ok = cli_embedder_embed(&local, text, strlen(text), 0, &vec, &dim);
+        } else {
+            ok = sh_index_embed_text(embedder, index_dir, text, &vec, &dim);
+        }
+        if (!ok) {
+            cli_error("skillctl: embedding failed on %s", e->name ? e->name : e->id);
             free(text);
-            ok = 0;
             break;
         }
         free(text);
@@ -181,6 +196,7 @@ int cmd_embed(int argc, char **argv) {
         cli_error("skillctl: embed failed; existing vectors left untouched");
     }
 
+    cli_embedder_close(&local);
     sh_vectors_free(&vecs);
     sh_catalog_free(&cat);
     free(catalog_path);

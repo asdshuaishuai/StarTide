@@ -14,6 +14,7 @@
 #include "sh_route.h"
 #include "sh_index.h"
 #include "sh_text.h"
+#include "sh_wordpiece.h"
 #include <math.h>
 
 static int failures = 0;
@@ -544,6 +545,74 @@ static void test_index_vectors(void) {
     CHECK(sh_index_normalize_vector(v, 3) == 0, "a zero vector cannot be normalised");
 }
 
+
+static void test_wordpiece(void) {
+    char dir[] = "/tmp/skillctl-wp-XXXXXX";
+    char vocab[512];
+    FILE *f;
+    sh_wordpiece *wp;
+    int64_t ids[SH_WP_MAX_TOKENS];
+    int64_t mask[SH_WP_MAX_TOKENS];
+    size_t n;
+    long cls, sep, unk;
+
+    if (!mkdtemp(dir)) {
+        CHECK(0, "mkdtemp failed");
+        return;
+    }
+    snprintf(vocab, sizeof(vocab), "%s/vocab.txt", dir);
+    f = fopen(vocab, "wb");
+    if (!f) {
+        CHECK(0, "cannot write a synthetic vocab");
+        return;
+    }
+    /* line number == id: [PAD]=0 [UNK]=1 [CLS]=2 [SEP]=3 hello=4 world=5
+     * ##ing=6 export=7 */
+    fputs("[PAD]\n[UNK]\n[CLS]\n[SEP]\nhello\nworld\n##ing\nexport\n", f);
+    fclose(f);
+
+    wp = sh_wp_load(vocab, 1);
+    CHECK(wp != NULL, "vocab should load");
+    if (!wp) return;
+    CHECK(sh_wp_vocab_size(wp) == 8, "vocab size should be 8, got %zu", sh_wp_vocab_size(wp));
+
+    cls = sh_wp_token_id(wp, "[CLS]");
+    sep = sh_wp_token_id(wp, "[SEP]");
+    unk = sh_wp_token_id(wp, "[UNK]");
+    CHECK(cls == 2 && sep == 3 && unk == 1, "special token ids are wrong: %ld %ld %ld", cls, sep,
+          unk);
+
+    n = sh_wp_encode(wp, "hello world", 11, ids, mask, SH_WP_MAX_TOKENS);
+    CHECK(n == 4, "hello world should encode as 4 tokens, got %zu", n);
+    if (n == 4) {
+        CHECK(ids[0] == cls && ids[1] == 4 && ids[2] == 5 && ids[3] == sep,
+              "hello world ids are wrong");
+        CHECK(mask[0] == 1 && mask[3] == 1, "mask should mark every real token");
+    }
+
+    /* WordPiece continuation: "exporting" = export + ##ing. */
+    n = sh_wp_encode(wp, "exporting", 9, ids, mask, SH_WP_MAX_TOKENS);
+    CHECK(n == 4, "exporting should split into 4 tokens, got %zu", n);
+    if (n == 4) CHECK(ids[1] == 7 && ids[2] == 6, "exporting should be export + ##ing");
+
+    /* Case folding. */
+    n = sh_wp_encode(wp, "HELLO", 5, ids, mask, SH_WP_MAX_TOKENS);
+    CHECK(n == 3 && ids[1] == 4, "uncased vocab should fold HELLO to hello");
+
+    /* An unmatchable word becomes a single [UNK]. */
+    n = sh_wp_encode(wp, "zzz", 3, ids, mask, SH_WP_MAX_TOKENS);
+    CHECK(n == 3 && ids[1] == unk, "unknown word should be [UNK]");
+
+    /* Truncation: the encoder must stop before overflowing the buffer. */
+    n = sh_wp_encode(wp, "hello hello hello hello hello", 29, ids, mask, 4);
+    CHECK(n == 4, "encoding should be capped at max_tokens, got %zu", n);
+    if (n == 4) CHECK(ids[3] == sep, "the last token must stay [SEP] after truncation");
+
+    sh_wp_free(wp);
+    remove(vocab);
+    rmdir(dir);
+}
+
 int main(void) {
     test_paths();
     test_yaml_basic();
@@ -561,6 +630,7 @@ int main(void) {
     test_text_profile();
     test_index_bm25f();
     test_index_vectors();
+    test_wordpiece();
     test_fs_basics();
     test_tree_hash_stability();
 

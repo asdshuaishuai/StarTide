@@ -158,21 +158,57 @@ skillctl show godot-ui --meta                    # 只要元信息，不取正�
 
 规模上的意义：in-context 路由的拐点约在 N≈500（Enrich-Retrieve-Rank 实测 0.85→0.12），这台机器 766 个技能已经越过拐点；Progressive Disclosure 在 Skill-Use 上正确激活率只有 0.11%（Gavel, 2609.15982）。一层渐进披露足够，第二层更深的路由从不帮忙（REALM 2026, 2607.17598）——所以这里只有 `find` → `show` 两步。
 
-### 向量路（可选）
+### 向量路（ONNX，进程内）
 
-引擎不内置模型：`SKILLCTL_EMBEDDER` 指向一个读 stdin、输出 JSON 数组的命令，`SKILLCTL_QUERY_EMBEDDER` 用于查询侧（缺省回退到前者）。
+向量路**不依赖 Python**：ONNX Runtime 是 C 库，模型是一个 `.onnx` 文件，分词是本仓库里的
+`core/sh_wordpiece.c`（BERT WordPiece，读 `vocab.txt`）。`skillctl embed` 和 `skillctl find`
+是同一个二进制，没有子进程、没有 Python 解释器。
 
 ```
-SKILLCTL_EMBEDDER='python3 embed.py' skillctl embed   # 生成 index/vectors.bin
-skillctl find --mode vector "..."                     # 只用向量路
-skillctl find --mode auto  "..."                      # 默认：有向量就 hybrid，否则 bm25
+# 模型放在 <store>/models/<任意名>/，含 model_qint8.onnx（或 model.onnx）+ vocab.txt
+ls ~/.skillctl/models/bge-small-zh-v1.5/
+skillctl embed                                  # 生成 index/vectors.bin
+skillctl find --mode hybrid "flutter 状态管理"   # 词面 + 稠密
+skillctl find --mode vector "..."               # 只用稠密
 ```
 
-没有 embedder 时向量路整条跳过，`find` 自动退化成 BM25F + 元数据两路；连索引都没有时再退化成纯元数据启发式——任何一步缺失都不会让 `find` 不可用。
+- `SKILLCTL_ONNX_MODEL` 可指向任意目录，**模型可替换**：任何 BERT 系、带 `vocab.txt` 的
+  ONNX 编码器都能直接用（bge / gte / all-MiniLM …）。
+- 编好的向量按内容哈希增量复用；换模型会导致维度变化，`embed` 会拒绝混写并要求重建。
+- 没有 ONNX Runtime 的机器上编译时自动降级（`SKILLCTL_NO_ONNX`），`find` 不受影响。
+
+**为什么 `auto` 默认不启用稠密路（实测）**
+
+当前随仓库的是 ModelScope 上的 `Maiteka/bge-small-zh-v1.5-onnx` —— int8 后 **23MB**，
+满足"ONNX + C 分词 + <100MB"这三个约束。但它是**中文单语**模型，而 skill 正文是英文。
+在 80 条评测集上给稠密路不同的 RRF 权重：
+
+| 稠密路权重 | Hit@1 | MRR@10 | Recall@10 |
+|---|---|---|---|
+| 1.0（RRF 标准） | 0.812 | 0.865 | 0.950 |
+| 0.5 | 0.838 | 0.893 | 1.000 |
+| 0.25 | 0.875 | 0.916 | 1.000 |
+| 0.10 | 0.875 | 0.919 | 0.988 |
+| **不启用（当前默认）** | **0.912** | **0.940** | 0.988 |
+
+rank 如此是因为模型读不懂英文：探针里"Blender FBX 导出"与"Flutter 状态管理"这对**不相关**
+文本的余弦（0.671）反而高于真正相关的跨语言对（0.491）。它的排名是噪声，任何正权重都会
+稀释真正的词面证据。
+
+所以：**权重保持 1.0（RRF 的公布值，不为迁就错配的模型而调参），稠密路改为显式
+`--mode hybrid` 才启用。** 这不是放弃向量路——是把它交给"模型确实读得懂语料"的场景。
+
+**体积约束的真相**：真正多语言的 BERT 系编码器必然带大词表（25 万词元），光嵌入表就
+~96M 参数，int8 后最小也在 118–150MB（`multilingual-e5-small` 约 150MB，且是
+SentencePiece 分词，C 里实现成本高）。**"<100MB + 真多语言 + WordPiece"三者不可兼得**；
+本仓库选择守住 100MB 上限，接受"中文单语"，并把替换模型的接口留好。
+
+评测对照：`bash tests/router_eval.sh` 走 `auto`；要看稠密路效果需在脚本里传
+`--mode hybrid`（`find` 的参数），或用 `--explain` 观察 `vec #n` 是否非零。
 
 ### 行为约定
 
-- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
+- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`（auto 默认只用词面+元数据两路，hybrid 才加稠密路）；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
 - `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**（同名不同内容在这类机器上很常见，静默取第一条是错误行为）
 - `find` **不按名字合并**结果：索引期已经合并了正文近重复的变体，剩下的同名条目是真正不同的内容，调用方需要两条并列才能按 id 选一个
 - `find`/`show` 只读，不触碰磁盘上的 skill；`index` 只写 store 下的 `index/`

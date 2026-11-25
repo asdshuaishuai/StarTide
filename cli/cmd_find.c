@@ -28,6 +28,7 @@
 #include "sh_json.h"
 #include "sh_route.h"
 #include "sh_text.h"
+#include "cli_embedder.h"
 
 #define FIND_CANDIDATES 100
 #define FIND_MAX_TERMS 64
@@ -41,6 +42,20 @@
  * it complements the fused list instead of replacing it.
  */
 #define FIND_EXACT_NAME_BOOST 0.050
+
+/*/*
+ * The dense list's RRF weight. It stays at the published value: a weight
+ * that only exists to rescue a mismatched model would hide the real
+ * problem instead of naming it. Measurements on the 80-query set, with the
+ * bundled Chinese-only encoder against English skill bodies:
+ *
+ *   weight 1.0  -> Hit@1 0.812      weight 0.25 -> 0.875
+ *   weight 0.5  -> Hit@1 0.838      no dense    -> 0.912
+ *
+ * So the dense list is opt-in (--mode hybrid / vector) rather than part of
+ * `auto`. Swap in a model that reads the corpus and hybrid earns its place.
+ */
+#define FIND_DENSE_WEIGHT 1.0
 
 /*
  * The glossary list is a weaker signal than a direct lexical match: a
@@ -82,9 +97,14 @@ static const char *ROUTER_SKILL =
     "   skillctl find --json --limit 5 \"deploy macos app\"\n"
     "   skillctl find --mode bm25 \"exact wording I expect in the body\"\n"
     "\n"
-    "Modes: auto (default; hybrid when vectors exist, else bm25), bm25,\n"
-    "vector, hybrid. --explain adds per-list ranks so a wrong hit is\n"
-    "diagnosable. Output is one line per hit, capped at 8 by default.\n"
+    "Modes: auto (default: BM25F over skill bodies plus the metadata\n"
+    "list), bm25, hybrid (adds the dense list), vector. --explain adds\n"
+    "per-list ranks so a wrong hit is diagnosable. Output is one line\n"
+    "per hit, capped at 8 by default.\n"
+    "\n"
+    "auto deliberately stays lexical: a dense list only helps when the\n"
+    "encoder actually reads the corpus. Use --mode hybrid after installing\n"
+    "a bilingual model (see README).\n"
     "\n"
     "## 2. Fetch the winner on demand\n"
     "\n"
@@ -301,7 +321,7 @@ static void fuse_add(fused_hit *hits, size_t *count, size_t cap, long cat, size_
             }
             if (vec_rank > 0 && hits[i].vec_rank == 0) {
                 hits[i].vec_rank = vec_rank;
-                hits[i].rrf += 1.0 / (SH_INDEX_RRF_K + (double)vec_rank);
+                hits[i].rrf += FIND_DENSE_WEIGHT / (SH_INDEX_RRF_K + (double)vec_rank);
             }
             if (meta_rank > 0 && hits[i].meta_rank == 0) {
                 hits[i].meta_rank = meta_rank;
@@ -320,7 +340,8 @@ static void fuse_add(fused_hit *hits, size_t *count, size_t cap, long cat, size_
     hits[*count].name_rank = 0;
     hits[*count].variants = variants;
     if (bm25_rank > 0) hits[*count].rrf += 1.0 / (SH_INDEX_RRF_K + (double)bm25_rank);
-    if (vec_rank > 0) hits[*count].rrf += 1.0 / (SH_INDEX_RRF_K + (double)vec_rank);
+    if (vec_rank > 0)
+        hits[*count].rrf += FIND_DENSE_WEIGHT / (SH_INDEX_RRF_K + (double)vec_rank);
     if (meta_rank > 0) hits[*count].rrf += 1.0 / (SH_INDEX_RRF_K + (double)meta_rank);
     (*count)++;
 }
@@ -462,7 +483,9 @@ int cmd_find(int argc, char **argv) {
     const char *mode = "auto";
     int explain = 0;
     int want_bm25 = 1;
-    int want_vector = 1;
+    /* Dense retrieval is opt-in: see FIND_DENSE_WEIGHT for the numbers
+     * behind that decision. `auto` stays lexical unless asked. */
+    int want_vector = 0;
     sh_index idx;
     sh_vectors vecs;
     int have_index = 0;
@@ -498,7 +521,7 @@ int cmd_find(int argc, char **argv) {
         free(query);
         return 2;
     }
-    if (strcmp(mode, "bm25") == 0) want_vector = 0;
+    if (strcmp(mode, "vector") == 0 || strcmp(mode, "hybrid") == 0) want_vector = 1;
     if (strcmp(mode, "vector") == 0) want_bm25 = 0;
 
     if (!sh_catalog_load(&cat, catalog_path) || cat.count == 0) {
@@ -512,6 +535,12 @@ int cmd_find(int argc, char **argv) {
 
     if (want_bm25) have_index = sh_index_load(index_dir, &idx) && idx.doc_count > 0;
 
+    if (!want_vector && strcmp(mode, "auto") == 0) {
+        char *vpath = sh_path_join(index_dir, "vectors.bin");
+        if (sh_exists(vpath))
+            cli_verbose_note("vectors present but auto stays lexical; use --mode hybrid");
+        free(vpath);
+    }
     if (want_vector) {
         char *vpath = sh_path_join(index_dir, "vectors.bin");
         have_vectors = sh_vectors_load(vpath, &vecs) && vecs.count > 0;
@@ -549,15 +578,28 @@ int cmd_find(int argc, char **argv) {
         free_terms(terms, term_count);
     }
 
-    /* ---- dense list: only when vectors and an embedder both exist */
+    /* ---- dense list: only when vectors exist and a model can encode the
+     * query. The in-process ONNX session is preferred; an external
+     * command is the fallback for operators who configured one. */
     if (have_vectors) {
+        cli_embedder local;
         const char *embedder = getenv("SKILLCTL_QUERY_EMBEDDER");
-        if (!embedder || !embedder[0]) embedder = getenv("SKILLCTL_EMBEDDER");
-        if (embedder && embedder[0]) {
-            float *q = NULL;
-            uint32_t dim = 0;
+        int have_local;
+        int got = 0;
+        float *q = NULL;
+        uint32_t dim = 0;
 
-            if (sh_index_embed_text(embedder, index_dir, query, &q, &dim)) {
+        memset(&local, 0, sizeof(local));
+        have_local = cli_embedder_open(&local, cli_store_home());
+        if (!embedder || !embedder[0]) embedder = getenv("SKILLCTL_EMBEDDER");
+        if (have_local) {
+            got = cli_embedder_embed(&local, query, strlen(query), 1, &q, &dim);
+        } else if (embedder && embedder[0]) {
+            got = sh_index_embed_text(embedder, index_dir, query, &q, &dim);
+        }
+
+        {
+            if (got) {
                 if (dim == vecs.dim) {
                     float *sims = malloc((size_t)vecs.count * sizeof(float));
                     if (sims) {
@@ -583,9 +625,10 @@ int cmd_find(int argc, char **argv) {
                 }
                 free(q);
             } else {
-                cli_verbose_note("query embedder failed; using the lexical list only");
+                cli_verbose_note("query embedding unavailable; lexical lists only");
             }
         }
+        cli_embedder_close(&local);
     }
 
     /*

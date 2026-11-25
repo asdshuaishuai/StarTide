@@ -17,9 +17,14 @@ intent to a skill, then read only that skill. Two calls, minimal context.
    skillctl find --json --limit 5 "deploy macos app"
    skillctl find --mode bm25 "exact wording I expect in the body"
 
-Modes: auto (default; hybrid when vectors exist, else bm25), bm25,
-vector, hybrid. --explain adds per-list ranks so a wrong hit is
-diagnosable. Output is one line per hit, capped at 8 by default.
+Modes: auto (default: BM25F over skill bodies plus the metadata
+list), bm25, hybrid (adds the dense list), vector. --explain adds
+per-list ranks so a wrong hit is diagnosable. Output is one line
+per hit, capped at 8 by default.
+
+auto deliberately stays lexical: a dense list only helps when the
+encoder actually reads the corpus. Use --mode hybrid after installing
+a bilingual model (see README).
 
 ## 2. Fetch the winner on demand
 

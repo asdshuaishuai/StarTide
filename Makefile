@@ -1,7 +1,21 @@
 CC      ?= cc
 CFLAGS  ?= -std=c99 -O2 -g -Wall -Wextra -Wno-unused-parameter
-CPPFLAGS+= -Icore -MMD -MP
+CPPFLAGS+= -Icore -Icli -MMD -MP
 LDFLAGS ?=
+
+# ONNX Runtime powers the local vector path (one .onnx file, no Python).
+# When it is missing the engine still builds: sh_onnx.h compiles to stubs
+# and find/embed degrade to the lexical lists.
+ORT_PREFIX ?= $(shell brew --prefix onnxruntime 2>/dev/null)
+ifneq ($(wildcard $(ORT_PREFIX)/include/onnxruntime/onnxruntime_c_api.h),)
+ORT_CPPFLAGS := -I$(ORT_PREFIX)/include
+ORT_LDFLAGS  := -L$(ORT_PREFIX)/lib -lonnxruntime
+else
+ORT_CPPFLAGS := -DSKILLCTL_NO_ONNX
+ORT_LDFLAGS  :=
+endif
+CPPFLAGS += $(ORT_CPPFLAGS)
+LDFLAGS  += $(ORT_LDFLAGS)
 
 ifeq ($(OS),Windows_NT)
 CORE_SRC := $(filter-out core/sh_fs_posix.c,$(wildcard core/*.c))
@@ -50,8 +64,8 @@ build/test_core: tests/test_core.c $(CORE_OBJ)
 
 asan:
 	@mkdir -p build
-	$(CC) -std=c99 -g -O1 -fsanitize=address,undefined -Icore -o build/skillctl_asan \
-		$(CLI_SRC) $(CORE_SRC)
+	$(CC) -std=c99 -g -O1 -fsanitize=address,undefined -Icore -Icli $(ORT_CPPFLAGS) \
+		-o build/skillctl_asan $(CLI_SRC) $(CORE_SRC) $(ORT_LDFLAGS)
 
 gui:
 	cd gui && cargo build --release
