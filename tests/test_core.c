@@ -613,6 +613,91 @@ static void test_wordpiece(void) {
     rmdir(dir);
 }
 
+
+static void test_vectors_file(void) {
+    char dir[] = "/tmp/skillctl-vec-XXXXXX";
+    char path[512];
+    char v1path[512];
+    sh_vectors v;
+    sh_vectors back;
+    FILE *f;
+
+    if (!mkdtemp(dir)) {
+        CHECK(0, "mkdtemp failed");
+        return;
+    }
+    snprintf(path, sizeof(path), "%s/vectors.bin", dir);
+
+    /* Round trip: signature, count, dim and values must all survive. */
+    memset(&v, 0, sizeof(v));
+    v.count = 2;
+    v.dim = 3;
+    v.ids = calloc(2, 64);
+    v.vec = malloc(2 * 3 * sizeof(float));
+    CHECK(v.ids && v.vec, "allocation failed");
+    if (!v.ids || !v.vec) {
+        free(v.ids);
+        free(v.vec);
+        rmdir(dir);
+        return;
+    }
+    memcpy(v.ids, "unit-one", 8);
+    memcpy(v.ids + 64, "unit-two", 8);
+    v.vec[0] = 0.5f;
+    v.vec[1] = -0.25f;
+    v.vec[2] = 0.125f;
+    v.vec[3] = 1.0f;
+    v.vec[4] = 0.0f;
+    v.vec[5] = -1.0f;
+    snprintf(v.sig, sizeof(v.sig), "%s", "encoder-abc1234");
+
+    CHECK(sh_vectors_write(path, &v) == 1, "vectors write failed");
+
+    memset(&back, 0, sizeof(back));
+    CHECK(sh_vectors_load(path, &back) == 1, "vectors load failed");
+    CHECK(back.count == 2 && back.dim == 3, "shape mismatch: %u x %u", back.count, back.dim);
+    CHECK_STR(back.sig, "encoder-abc1234");
+    CHECK(back.ids && memcmp(back.ids, "unit-one", 8) == 0, "first id mismatch");
+    CHECK(back.vec && fabs((double)back.vec[1] + 0.25) < 1e-6, "value mismatch");
+    CHECK(back.vec && fabs((double)back.vec[5] + 1.0) < 1e-6, "second record mismatch");
+    sh_vectors_free(&back);
+    free(v.ids);
+    free(v.vec);
+
+    /* A file in the older SHVEC1 layout has no fingerprint and must still
+     * load, so an upgrade does not invalidate an existing index. */
+    snprintf(v1path, sizeof(v1path), "%s/vectors-v1.bin", dir);
+    f = fopen(v1path, "wb");
+    CHECK(f != NULL, "cannot create the v1 fixture");
+    if (f) {
+        unsigned char hdr[14 + 64 + 8];
+        uint32_t count = 1, dim = 2;
+        float vals[2];
+
+        memset(hdr, 0, sizeof(hdr));
+        memcpy(hdr, "SHVEC1", 6);
+        memcpy(hdr + 6, &count, 4);
+        memcpy(hdr + 10, &dim, 4);
+        memcpy(hdr + 14, "legacy-unit", 11);
+        vals[0] = 0.75f;
+        vals[1] = -0.5f;
+        memcpy(hdr + 14 + 64, vals, sizeof(vals));
+        fwrite(hdr, 1, sizeof(hdr), f);
+        fclose(f);
+
+        memset(&back, 0, sizeof(back));
+        CHECK(sh_vectors_load(v1path, &back) == 1, "v1 vectors should still load");
+        CHECK(back.count == 1 && back.dim == 2, "v1 shape mismatch");
+        CHECK(back.sig[0] == '\0', "v1 files carry no fingerprint");
+        CHECK(back.vec && fabs((double)back.vec[0] - 0.75) < 1e-6, "v1 value mismatch");
+        sh_vectors_free(&back);
+    }
+
+    remove(path);
+    remove(v1path);
+    rmdir(dir);
+}
+
 int main(void) {
     test_paths();
     test_yaml_basic();
@@ -631,6 +716,7 @@ int main(void) {
     test_index_bm25f();
     test_index_vectors();
     test_wordpiece();
+    test_vectors_file();
     test_fs_basics();
     test_tree_hash_stability();
 

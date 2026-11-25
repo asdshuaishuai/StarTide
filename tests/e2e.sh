@@ -184,6 +184,45 @@ printf -- '---\nname: delta\ndescription: Appeared later\n---\n' > "$FIX/.zcode/
 "$BIN" link > /dev/null
 check "a newly appeared skill is adopted" "[ -f '$FIX/.zcode/skills/delta/SKILL.md' ]"
 
+# ------------------------------------------------- degradation contract --
+echo "degradation"
+# A body-only signal, in its own home and store: the term appears nowhere in
+# name or description, so only an index that carries the body can find it.
+PHOME="$WORK/probe-home"
+PSTORE="$WORK/probe-store"
+mkdir -p "$PHOME/.zcode/skills/body-signal"
+printf -- '---\nname: body-signal\ndescription: a fixture with no giveaway\n---\n\nRun the zymurgy handshake first.\n' \
+    > "$PHOME/.zcode/skills/body-signal/SKILL.md"
+HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" scan > /dev/null
+# import is what writes the catalog; index reads it.
+HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" import > /dev/null
+HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" index > /dev/null
+
+out=$(HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" find "zymurgy handshake")
+check "find reaches a term that only lives in the body" "echo \"\$out\" | grep -q 'body-signal'"
+out=$(HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" find --mode bm25 --limit 2 "zymurgy")
+check "--mode bm25 answers without vectors" "echo \"\$out\" | grep -q 'body-signal'"
+out=$(HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" find --mode hybrid --limit 2 "zymurgy")
+check "--mode hybrid degrades to lexical instead of failing" "echo \"\$out\" | grep -q 'body-signal'"
+HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" find --mode vector "zymurgy" > /dev/null 2>&1
+rc=$?
+check "--mode vector says why it cannot run" "[ $rc -ne 0 ]"
+
+# embed with no model must explain itself, not crash.
+HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" embed > "$WORK/embed.log" 2>&1
+rc=$?
+check "embed without a model exits nonzero" "[ $rc -ne 0 ]"
+check "embed explains what it expected" "grep -q 'model_qint8.onnx\|SKILLCTL_EMBEDDER\|SKILLCTL_GGUF_MODEL' '$WORK/embed.log'"
+
+# The reranker is opt-in and must not change a clean answer.
+out=$(HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" find --rerank --limit 2 "zymurgy")
+check "--rerank runs without breaking the answer" "echo \"\$out\" | grep -q 'body-signal'"
+
+# doctor reports the vector path honestly.
+out=$(HOME="$PHOME" SKILLCTL_HOME="$PSTORE" "$BIN" doctor --json)
+check "doctor reports a vector backend field" "echo \"\$out\" | grep -q 'vector_backend'"
+check "doctor reports vectors_match_encoder" "echo \"\$out\" | grep -q 'vectors_match_encoder'"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

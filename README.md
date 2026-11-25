@@ -52,8 +52,36 @@ make app        # 在仓库根目录组装 StarTide.app（二进制 + Info.plist
 make cross-win  # 交叉编译 Windows 引擎 build-win/skillctl.exe（需要 mingw-w64）
 ```
 
-纯 C99，零外部依赖。Linux/macOS 直接可编；Windows 需要 `sh_fs_win32.c`
-（见「跨平台」一节）。
+**引擎与 CLI 是纯 C99，源码层面零外部依赖。** Linux/macOS 直接 `make` 即可；
+Windows 需要 `sh_fs_win32.c`（见「跨平台」一节）。
+
+### 可选依赖（只影响向量路）
+
+| 依赖 | 用在哪 | 缺了会怎样 |
+|---|---|---|
+| `cc` + `make` | 引擎与 CLI | 必需 |
+| [ONNX Runtime](https://onnxruntime.ai)（`brew install onnxruntime`） | ONNX 后端（BERT 系模型） | 编译期自动降级（`SKILLCTL_NO_ONNX`），`find` 不受影响 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) + `ggml`（`brew install llama.cpp`） | GGUF 后端（decoder 系模型） | 同上（`SKILLCTL_NO_LLAMA`） |
+
+两条后端都是**进程内**调用，不需要 Python、不需要服务进程。缺库时对应代码编译成
+空实现，词面检索照常工作——`doctor` 会如实报告当前哪条路可用。
+
+### 装一个向量模型（可选）
+
+当前默认模型是 F2LLM-v2-80M 的 Q8_0 GGUF（**87 MB**，200+ 语言，320 维）：
+
+```bash
+mkdir -p ~/.skillctl/models/f2llm-80m-gguf
+curl -L -o ~/.skillctl/models/f2llm-80m-gguf/F2LLM-v2-80M.Q8_0.gguf \
+  https://hf-mirror.com/mradermacher/F2LLM-v2-80M-GGUF/resolve/main/F2LLM-v2-80M.Q8_0.gguf
+skillctl doctor        # 应显示 Vector path gguf (model …)
+skillctl embed         # 生成 index/vectors.bin（带模型指纹）
+```
+
+换模型两种方式：`SKILLCTL_GGUF_MODEL=/path/to/model.gguf`（任意 GGUF 嵌入模型），
+或 `SKILLCTL_ONNX_MODEL=/path/to/dir`（任意含 `vocab.txt` 或 `tokenizer.json` 的 ONNX
+模型）。换完必须重跑 `skillctl embed`——`find` 会比对向量里的模型指纹，不匹配就拒绝
+使用稠密路并提示你重建。
 
 ## 使用
 

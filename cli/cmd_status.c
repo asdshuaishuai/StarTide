@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include "cli.h"
+#include "cli_embedder.h"
+#include "sh_index.h"
 #include "sh_json.h"
 
 static const char *root_state(const char *root, char **out_target) {
@@ -268,6 +270,35 @@ int cmd_doctor(int argc, char **argv) {
         if (sh_lstat(cfg->agents[a].root, &info) == SH_FS_OK) with_root++;
     }
 
+    /* ---- vector path readiness ------------------------------------- */
+    char vec_backend[32];
+    char vec_sig[17];
+    long long vec_count = 0;
+    long long vec_dim = 0;
+    int vec_present = 0;
+    int vec_match = 0;
+    {
+        cli_embedder emb;
+        sh_vectors vecs;
+        char *vpath = sh_path_join(home, "index/vectors.bin");
+        int have_emb = cli_embedder_open(&emb, home);
+        int have_vecs = sh_vectors_load(vpath, &vecs) && vecs.count > 0;
+
+        snprintf(vec_backend, sizeof(vec_backend), "%s",
+                 have_emb ? cli_embedder_backend(&emb) : "none");
+        snprintf(vec_sig, sizeof(vec_sig), "%s", have_emb ? cli_embedder_sig(&emb) : "");
+        if (have_vecs) {
+            vec_present = 1;
+            vec_count = (long long)vecs.count;
+            vec_dim = (long long)vecs.dim;
+            if (have_emb && vecs.sig[0]) vec_match = strcmp(vecs.sig, vec_sig) == 0;
+        }
+        /* Released here: only plain scalars travel into the report. */
+        free(vpath);
+        sh_vectors_free(&vecs);
+        cli_embedder_close(&emb);
+    }
+
     if (cli_json) {
         sh_jw w;
         sh_jw_init(&w);
@@ -282,6 +313,16 @@ int cmd_doctor(int argc, char **argv) {
         sh_jw_num(&w, (long long)cfg->agent_count);
         sh_jw_key(&w, "agents_with_root");
         sh_jw_num(&w, (long long)with_root);
+        sh_jw_key(&w, "vector_backend");
+        sh_jw_str(&w, vec_backend);
+        sh_jw_key(&w, "vector_model_sig");
+        sh_jw_str(&w, vec_sig);
+        sh_jw_key(&w, "vectors_count");
+        sh_jw_num(&w, vec_count);
+        sh_jw_key(&w, "vectors_dim");
+        sh_jw_num(&w, vec_dim);
+        sh_jw_key(&w, "vectors_match_encoder");
+        sh_jw_bool(&w, vec_match);
         sh_jw_key(&w, "problems");
         sh_jw_num(&w, (long long)problems);
         sh_jw_key(&w, "agent_list");
@@ -306,6 +347,20 @@ int cmd_doctor(int argc, char **argv) {
         cli_note("Symlinks       %s", symlinks_ok ? "supported" : "NOT SUPPORTED");
         cli_note("Agents         %zu detected, %zu with an existing skills directory",
                  cfg->agent_count, with_root);
+        if (strcmp(vec_backend, "none") == 0) {
+            cli_note("Vector path    unavailable (no model found; find stays lexical)");
+        } else {
+            cli_note("Vector path    %s (model %.16s)", vec_backend, vec_sig);
+        }
+        if (!vec_present) {
+            cli_note("Vectors        absent (run 'skillctl embed' to enable --mode hybrid)");
+        } else if (vec_match) {
+            cli_note("Vectors        %lld x %lld, match this model", vec_count, vec_dim);
+        } else {
+            cli_note("Vectors        %lld x %lld, built by a DIFFERENT model "
+                     "(run 'skillctl embed')",
+                     vec_count, vec_dim);
+        }
         for (size_t a = 0; a < cfg->agent_count; a++) {
             if (cli_agent && strcmp(cli_agent, cfg->agents[a].id) != 0) continue;
             sh_fs_info info;
