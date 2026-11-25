@@ -156,6 +156,10 @@ typedef struct {
     uint32_t dim;
     char *ids;  /* count * 64 bytes */
     float *vec; /* count * dim */
+    /* Fingerprint of the encoder that produced these vectors. Vectors from
+     * two different models are not comparable even at the same dimension,
+     * so the reader compares this against the live encoder before use. */
+    char sig[65];
 } sh_vectors;
 
 int sh_vectors_load(const char *path, sh_vectors *out);

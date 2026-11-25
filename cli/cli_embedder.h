@@ -35,6 +35,9 @@ typedef struct {
     sh_unigram *uni;
     int backend; /* 0 none, 1 wordpiece/bge, 2 unigram/e5, 3 gguf */
     int dim;
+    /* Fingerprint of (backend, model file, size, dimension). Vectors carry
+     * it so a model swap is detected instead of silently mixed. */
+    char sig[17];
 } cli_embedder;
 
 /* Resolve a model directory: SKILLCTL_ONNX_MODEL, else the multilingual
@@ -49,8 +52,12 @@ char *cli_embedder_gguf_path(const char *store_home);
 int cli_embedder_open(cli_embedder *e, const char *store_home);
 void cli_embedder_close(cli_embedder *e);
 
-/* "onnx-wordpiece", "onnx-unigram" or "none". */
+/* "gguf", "onnx-unigram", "onnx-wordpiece" or "none". */
 const char *cli_embedder_backend(const cli_embedder *e);
+
+/* 16-hex fingerprint of the loaded encoder, or "" when none is loaded.
+ * Vectors carry it so a model swap is refused instead of silently mixed. */
+const char *cli_embedder_sig(const cli_embedder *e);
 
 /* Embed one text. `is_query` adds the backend's query prefix. */
 int cli_embedder_embed(cli_embedder *e, const char *text, size_t len, int is_query,

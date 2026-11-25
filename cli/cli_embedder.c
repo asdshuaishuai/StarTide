@@ -105,6 +105,30 @@ void cli_embedder_close(cli_embedder *e) {
     memset(e, 0, sizeof(*e));
 }
 
+/* FNV-1a over the identity of the encoder: backend, model file path, its
+ * size, and the output dimension. Two models that differ in any of these
+ * produce incomparable vectors. */
+static void embedder_fingerprint(cli_embedder *e, const char *backend_name,
+                                 const char *model_path) {
+    char buf[512];
+    sh_fs_info info;
+    unsigned long long h = 1469598103934665603ULL;
+
+    memset(&info, 0, sizeof(info));
+    if (model_path) sh_stat(model_path, &info);
+    /* The dimension is recorded separately in vectors.bin and compared
+     * there; the fingerprint only has to identify the model itself. */
+    snprintf(buf, sizeof(buf), "%s|%s|%llu", backend_name ? backend_name : "",
+             model_path ? model_path : "", (unsigned long long)info.size);
+    for (const char *p = buf; *p; p++) {
+        h ^= (unsigned long long)(unsigned char)*p;
+        h *= 1099511628211ULL;
+    }
+    snprintf(e->sig, sizeof(e->sig), "%016llx", h);
+}
+
+const char *cli_embedder_sig(const cli_embedder *e) { return e ? e->sig : ""; }
+
 const char *cli_embedder_backend(const cli_embedder *e) {
     if (!e) return "none";
     if (e->backend == 3) return "gguf";
@@ -129,11 +153,14 @@ int cli_embedder_open(cli_embedder *e, const char *store_home) {
         char *gguf = cli_embedder_gguf_path(store_home);
         if (gguf) {
             e->gguf = sh_gguf_open(gguf);
-            free(gguf);
             if (e->gguf) {
                 e->backend = 3;
+                e->dim = sh_gguf_dim(e->gguf);
+                embedder_fingerprint(e, "gguf", gguf);
+                free(gguf);
                 return 1;
             }
+            free(gguf);
         }
     }
 
@@ -165,6 +192,8 @@ int cli_embedder_open(cli_embedder *e, const char *store_home) {
         }
     }
 
+    if (ok)
+        embedder_fingerprint(e, e->backend == 2 ? "onnx-unigram" : "onnx-wordpiece", model);
     if (!ok) cli_embedder_close(e);
     free(model);
     free(tokenizer_json);

@@ -117,7 +117,7 @@ int cmd_embed(int argc, char **argv) {
         return 1;
     }
 
-    cli_note("embedding %zu skills", cat.count);
+    cli_note("embedding %zu skills with %s", cat.count, cli_embedder_backend(&local));
 
     for (size_t i = 0; i < cat.count; i++) {
         const sh_catalog_entry *e = &cat.entries[i];
@@ -176,7 +176,11 @@ int cmd_embed(int argc, char **argv) {
         if ((i + 1) % 100 == 0) cli_note("  %zu / %zu", i + 1, cat.count);
     }
 
-    if (ok && vecs.count > 0) ok = sh_vectors_write(out_path, &vecs);
+    if (ok && vecs.count > 0) {
+        /* Stamp the encoder so `find` can refuse vectors from another model. */
+        snprintf(vecs.sig, sizeof(vecs.sig), "%s", cli_embedder_sig(&local));
+        ok = sh_vectors_write(out_path, &vecs);
+    }
 
     if (cli_json) {
         sh_jw w;
@@ -193,7 +197,8 @@ int cmd_embed(int argc, char **argv) {
         fputc('\n', stdout);
         sh_jw_free(&w);
     } else if (ok) {
-        cli_note("wrote %zu vectors (dim %u) to %s", vecs.count, vecs.dim, out_path);
+        cli_note("wrote %zu vectors (dim %u, model %.16s) to %s", vecs.count, vecs.dim,
+                 vecs.sig, out_path);
     } else {
         cli_error("skillctl: embed failed; existing vectors left untouched");
     }

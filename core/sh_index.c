@@ -1255,8 +1255,11 @@ size_t sh_index_search(const sh_index *idx, const char *const *terms, size_t ter
 
 /* ------------------------------------------------------------- vectors */
 
-#define SHVEC_MAGIC "SHVEC1"
-#define SHVEC_HEADER 14 /* 6 magic + u32 count + u32 dim */
+#define SHVEC_MAGIC "SHVEC2"
+#define SHVEC_MAGIC_V1 "SHVEC1"
+#define SHVEC_SIG_LEN 64
+#define SHVEC_HEADER (6 + 4 + 4 + SHVEC_SIG_LEN) /* + model fingerprint */
+#define SHVEC_HEADER_V1 (6 + 4 + 4)
 
 int sh_vectors_load(const char *path, sh_vectors *out) {
     char *data = NULL;
@@ -1269,12 +1272,50 @@ int sh_vectors_load(const char *path, sh_vectors *out) {
     memset(out, 0, sizeof(*out));
     if (!path) return 0;
     if (sh_read_file(path, &data, &len) != SH_FS_OK) return 0;
-    if (len < SHVEC_HEADER || memcmp(data, SHVEC_MAGIC, 6) != 0) goto done;
-    count = get_u32((const unsigned char *)data + 6);
-    dim = get_u32((const unsigned char *)data + 10);
-    if (count == 0 || dim == 0 || dim > 8192 || count > 1000000) goto done;
-    need = SHVEC_HEADER + (size_t)count * (64 + (size_t)dim * 4);
-    if (len < need) goto done;
+    {
+        size_t header;
+        int v1 = memcmp(data, SHVEC_MAGIC_V1, 6) == 0;
+
+        if (len >= 6 && memcmp(data, SHVEC_MAGIC, 6) == 0) {
+            header = SHVEC_HEADER;
+        } else if (len >= 6 && v1) {
+            /* Older files carry no fingerprint; they still load, and the
+             * caller decides whether to trust them. */
+            header = SHVEC_HEADER_V1;
+        } else {
+            goto done;
+        }
+        if (len < header) goto done;
+        count = get_u32((const unsigned char *)data + 6);
+        dim = get_u32((const unsigned char *)data + 10);
+        if (count == 0 || dim == 0 || dim > 8192 || count > 1000000) goto done;
+        need = header + (size_t)count * (64 + (size_t)dim * 4);
+        if (len < need) goto done;
+        if (header == SHVEC_HEADER) {
+            memcpy(out->sig, data + 14, SHVEC_SIG_LEN);
+            out->sig[SHVEC_SIG_LEN] = '\0';
+        }
+        {
+            const unsigned char *base = (const unsigned char *)data + header;
+            out->ids = malloc((size_t)count * 64);
+            out->vec = malloc((size_t)count * (size_t)dim * sizeof(float));
+            if (!out->ids || !out->vec) goto done;
+            for (size_t i = 0; i < count; i++) {
+                const unsigned char *rec = base + i * (64 + (size_t)dim * 4);
+                memcpy(out->ids + i * 64, rec, 64);
+                for (uint32_t d = 0; d < dim; d++) {
+                    uint32_t bits = get_u32(rec + 64 + (size_t)d * 4);
+                    float value;
+                    memcpy(&value, &bits, sizeof(value));
+                    out->vec[i * dim + d] = value;
+                }
+            }
+        }
+        out->count = count;
+        out->dim = dim;
+        rc = 1;
+        goto done;
+    }
 
     out->ids = malloc((size_t)count * 64);
     out->vec = malloc((size_t)count * (size_t)dim * sizeof(float));
@@ -1327,9 +1368,17 @@ int sh_vectors_write(const char *path, const sh_vectors *v) {
     }
     {
         unsigned char hdr[SHVEC_HEADER];
+        memset(hdr, 0, sizeof(hdr));
         memcpy(hdr, SHVEC_MAGIC, 6);
         put_u32(hdr + 6, v->count);
         put_u32(hdr + 10, v->dim);
+        /* Fingerprint, zero-padded: a shorter signature still round-trips
+         * because the reader stops at the first NUL. */
+        {
+            size_t slen = strlen(v->sig);
+            if (slen > SHVEC_SIG_LEN) slen = SHVEC_SIG_LEN;
+            memcpy(hdr + 14, v->sig, slen);
+        }
         if (fwrite(hdr, 1, SHVEC_HEADER, f) != SHVEC_HEADER) goto close_fail;
     }
     for (uint32_t i = 0; i < v->count; i++) {

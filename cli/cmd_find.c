@@ -603,6 +603,20 @@ int cmd_find(int argc, char **argv) {
 
         {
             if (got) {
+                /* Refuse vectors from a different encoder: same dimension
+                 * does not mean comparable vectors. */
+                if (have_local) {
+                    const char *cur = cli_embedder_sig(&local);
+                    if (vecs.sig[0] && strcmp(vecs.sig, cur) != 0) {
+                        cli_error("vectors were built by %.16s, this model is %.16s "
+                                  "- run 'skillctl embed'",
+                                  vecs.sig, cur);
+                        got = 0;
+                    } else if (!vecs.sig[0]) {
+                        cli_verbose_note(
+                            "vectors carry no model fingerprint (older file); re-run 'skillctl embed'");
+                    }
+                }
                 if (dim == vecs.dim) {
                     float *sims = malloc((size_t)vecs.count * sizeof(float));
                     if (sims) {
