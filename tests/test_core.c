@@ -11,6 +11,7 @@
 #include "sh_hash.h"
 #include "sh_json.h"
 #include "sh_yaml.h"
+#include "sh_route.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -360,6 +361,77 @@ static void test_scan_skips_denied_dirs(void) {
 }
 #endif
 
+
+static void test_route(void) {
+    sh_catalog cat;
+    sh_route_hit *hits = NULL;
+    size_t got;
+    int kind = 0;
+    size_t candidates = 0;
+
+    memset(&cat, 0, sizeof(cat));
+    cat.count = 3;
+    cat.entries = calloc(3, sizeof(sh_catalog_entry));
+    cat.entries[0].id = strdup("aaaa111122223333");
+    cat.entries[0].name = strdup("godot-shaders");
+    cat.entries[0].description = strdup("Write Godot shaders: vertex and fragment stages");
+    cat.entries[0].in_store = 1;
+    cat.entries[1].id = strdup("bbbb111122223333");
+    cat.entries[1].name = strdup("godot-ui");
+    cat.entries[1].description = strdup("Build Godot user interfaces with Control nodes");
+    cat.entries[2].id = strdup("cccc111122223333");
+    cat.entries[2].name = strdup("swiftui");
+    cat.entries[2].description = strdup("Build SwiftUI views for macOS apps");
+    cat.entries[2].in_store = 1;
+
+    got = sh_route_search(&cat, "godot shader", 5, &hits);
+    CHECK(got == 2, "expected 2 hits, got %zu", got);
+    if (got == 2) {
+        CHECK_STR(cat.entries[hits[0].index].name, "godot-shaders");
+        CHECK(hits[0].score > hits[1].score, "shader match should outrank the plain godot hit");
+    }
+    sh_route_hits_free(hits);
+
+    got = sh_route_search(&cat, "swiftui", 5, &hits);
+    CHECK(got == 1 && cat.entries[hits[0].index].name &&
+              strcmp(cat.entries[hits[0].index].name, "swiftui") == 0,
+          "exact name should be the only hit");
+    sh_route_hits_free(hits);
+
+    got = sh_route_search(&cat, "", 5, &hits);
+    CHECK(got == 0, "empty query must not match");
+    sh_route_hits_free(hits);
+
+    got = sh_route_search(&cat, "definitely-not-there", 5, &hits);
+    CHECK(got == 0, "unrelated query must not match");
+    sh_route_hits_free(hits);
+
+    CHECK(sh_route_resolve(&cat, "godot-shaders", &kind, &candidates) == 0 && kind == 1,
+          "exact name resolution failed");
+    CHECK(sh_route_resolve(&cat, "godot-sh", &kind, &candidates) == 0 && kind == 3,
+          "unique prefix resolution failed");
+    CHECK(sh_route_resolve(&cat, "godot-", &kind, &candidates) == -1 && candidates == 2,
+          "ambiguous prefix should report two candidates");
+    CHECK(sh_route_resolve(&cat, "shaders", &kind, &candidates) == 0 && kind == 4,
+          "unique substring resolution failed");
+    CHECK(sh_route_resolve(&cat, "nope-nope", &kind, &candidates) == -1 && candidates == 0,
+          "unknown needle should report no candidates");
+    /* a duplicate name must be ambiguous, not silently first-match */
+    free(cat.entries[1].name);
+    cat.entries[1].name = strdup("godot-shaders");
+    CHECK(sh_route_resolve(&cat, "godot-shaders", &kind, &candidates) == -1 && candidates == 2,
+          "duplicate exact names should report two candidates");
+    free(cat.entries[1].name);
+    cat.entries[1].name = strdup("godot-ui");
+
+    for (size_t i = 0; i < 3; i++) {
+        free(cat.entries[i].id);
+        free(cat.entries[i].name);
+        free(cat.entries[i].description);
+    }
+    free(cat.entries);
+}
+
 int main(void) {
     test_paths();
     test_yaml_basic();
@@ -371,6 +443,7 @@ int main(void) {
     test_yaml_key_order();
     test_hash();
     test_json();
+    test_route();
     test_fs_basics();
     test_tree_hash_stability();
 

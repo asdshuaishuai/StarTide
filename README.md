@@ -127,6 +127,33 @@ skillctl link              # 真正替换
 
 没有配置文件时使用内置默认值，agent 根目录按 `~/.<名字>/skills` 自动发现。
 
+
+## Skill 路由（按需取用，省上下文）
+
+把"所有 skill 的 description 都塞进 agent 上下文"换成"提问 → 命中 → 只读一个"：
+
+```
+skillctl find "build a godot UI with shaders"   # 意图 → 排序后的候选（名字 + 一行描述）
+skillctl find --json --limit 5 "deploy macos app"
+skillctl show godot-ui                          # 按需取回该 skill 的 SKILL.md
+skillctl show godot-ui --meta                   # 只要元信息，不取正文
+```
+
+- `find` 在 catalog 上做加权排序：名字精确/前缀/子串 > 描述命中 > 路径命中，
+  已入库和多来源有小幅加权；默认只输出前 8 条，每条一行，天然适合 agent 消费
+- `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**
+  （同名不同内容在这类机器上很常见，静默取第一条是错误行为）
+- `find`/`show` 只读，不触碰磁盘上的 skill
+
+配合同仓库的 `skills/skill-router/SKILL.md`（也可 `skillctl router-skill` 直接打印）：
+
+```
+skillctl router-skill --install   # 写进共享的 ~/.agents/skills/skill-router/
+```
+
+之后 agent 只需要这一个 skill 的几十行指令，就能按意图检索全部 skill——
+不再需要把几百条 description 常驻上下文。
+
 ## 设计
 
 见 [docs/DESIGN.md](docs/DESIGN.md)，包括扫描可达性规则、内容寻址、

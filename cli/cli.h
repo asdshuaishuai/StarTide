@@ -85,6 +85,9 @@ void cli_link_list_free(cli_link_list *l);
 /* ---------------------------------------------------------- commands */
 
 int cmd_scan(int argc, char **argv);
+int cmd_find(int argc, char **argv);
+int cmd_show(int argc, char **argv);
+int cmd_router_skill(int argc, char **argv);
 int cmd_catalog(int argc, char **argv);
 int cmd_import(int argc, char **argv);
 int cmd_link(int argc, char **argv);

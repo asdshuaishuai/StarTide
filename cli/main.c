@@ -25,6 +25,9 @@ static void print_help(void) {
         "  status      show the state of the store and of every agent\n"
         "  doctor      check that this machine can run skillctl\n"
         "  gc          remove store units that nothing points at\n"
+        "  find        rank skills against a free-text intent (skill router)\n"
+        "  show        print the SKILL.md of one skill (on-demand fetch)\n"
+        "  router-skill print (or --install) the router skill for agents\n"
         "\n"
         "Options:\n"
         "  --json            machine readable output\n"
@@ -37,6 +40,8 @@ static void print_help(void) {
         "  --scope <own|all> what a view contains: only the agent's own skills, or every skill\n"
         "  --stream          emit progress events as newline delimited JSON\n"
         "  --no-hash         skip content hashing (faster, less precise)\n"
+        "  --meta            with show: name/description/path instead of the body\n"
+        "  --install         with router-skill: write it into the agent root\n"
         "  --version         print the version\n"
         "  --help            print this help\n"
         "\n"
@@ -55,6 +60,9 @@ static int dispatch(int argc, char **argv) {
     if (strcmp(cmd, "status") == 0) return cmd_status(argc, argv);
     if (strcmp(cmd, "doctor") == 0) return cmd_doctor(argc, argv);
     if (strcmp(cmd, "gc") == 0) return cmd_gc(argc, argv);
+    if (strcmp(cmd, "find") == 0 || strcmp(cmd, "route") == 0) return cmd_find(argc, argv);
+    if (strcmp(cmd, "show") == 0 || strcmp(cmd, "open") == 0) return cmd_show(argc, argv);
+    if (strcmp(cmd, "router-skill") == 0) return cmd_router_skill(argc, argv);
 
     fprintf(stderr, "skillctl: unknown command '%s'\n", cmd);
     print_help();
@@ -84,7 +92,8 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--dry-run") == 0) { cli_dry_run = 1; continue; }
         if (strcmp(a, "--verbose") == 0 || strcmp(a, "-v") == 0) { cli_verbose = 1; continue; }
         if (strcmp(a, "--no-hash") == 0 || strcmp(a, "--no-catalog") == 0 ||
-            strcmp(a, "--stream") == 0) {
+            strcmp(a, "--stream") == 0 || strcmp(a, "--meta") == 0 ||
+            strcmp(a, "--install") == 0) {
             rest[rest_count++] = argv[i];
             continue;
         }

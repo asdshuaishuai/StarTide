@@ -150,6 +150,27 @@ check "its contents came back too" "[ -f '$FIX/.zcode/skills/alpha/SKILL.md' ]"
 check "the claude directory came back" "[ -f '$FIX/.claude/skills/gamma/SKILL.md' ]"
 check "the cursor directory came back" "[ -f '$FIX/.cursor/skills/crlf/SKILL.md' ]"
 
+# -------------------------------------------------------------- router --
+echo "router"
+out=$("$BIN" find alpha)
+check "find resolves a name" "echo \"\$out\" | grep -q '^alpha'"
+out=$("$BIN" find --json "spanning lines")
+check "find ranks a description match" "echo \"\$out\" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d and d[0][\"name\"]==\"beta\"'"
+out=$("$BIN" show gamma)
+check "show prints the skill body" "echo \"\$out\" | grep -q 'name: gamma'"
+"$BIN" show alpha > /dev/null 2>&1
+rc=$?
+check "a duplicate name is reported as ambiguous" "[ $rc -eq 2 ]"
+out=$("$BIN" show gamma --meta)
+check "show --meta prints metadata" "echo \"\$out\" | grep -q '^name: gamma'"
+"$BIN" show definitely-not-a-skill > /dev/null 2>&1
+rc=$?
+check "an unknown name exits nonzero" "[ $rc -ne 0 ]"
+"$BIN" router-skill > "$WORK/router.md"
+check "router-skill emits a skill" "grep -q 'name: skill-router' '$WORK/router.md'"
+"$BIN" router-skill --install > /dev/null
+check "router-skill --install lands in the shared root" "[ -f '$FIX/.agents/skills/skill-router/SKILL.md' ]"
+
 # ------------------------------------------------------------------ gc --
 echo "gc"
 out=$("$BIN" gc --json)
