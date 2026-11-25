@@ -71,6 +71,7 @@ esac
 python3 - "$BIN" "$TSV" "$LIMIT" "$VERBOSE" <<'PY'
 import json
 import math
+import os
 import subprocess
 import sys
 
@@ -136,7 +137,9 @@ query_errors = 0
 results = []
 for lineno, query, expected in rows:
     proc = subprocess.run(
-        [bin_path, "find", "--json", "--limit", str(limit), query],
+        [bin_path, "find", "--json", "--limit", str(limit)]
+        + (["--mode", os.environ["ROUTER_MODE"]] if os.environ.get("ROUTER_MODE") else [])
+        + [query],
         capture_output=True, text=True,
     )
     hits = []

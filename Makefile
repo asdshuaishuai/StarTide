@@ -17,6 +17,21 @@ endif
 CPPFLAGS += $(ORT_CPPFLAGS)
 LDFLAGS  += $(ORT_LDFLAGS)
 
+# llama.cpp is the GGUF runtime: it brings the byte-level BPE tokeniser and
+# last-token pooling that decoder embedding models (Qwen3/F2LLM) need, so no
+# tokeniser has to be written here. Absent, the header compiles to stubs.
+LLAMA_PREFIX ?= $(shell brew --prefix llama.cpp 2>/dev/null)
+GGML_PREFIX  ?= $(shell brew --prefix ggml 2>/dev/null)
+ifneq ($(wildcard $(LLAMA_PREFIX)/include/llama.h),)
+LLAMA_CPPFLAGS := -I$(LLAMA_PREFIX)/include -I$(GGML_PREFIX)/include
+LLAMA_LDFLAGS  := -L$(LLAMA_PREFIX)/lib -lllama -L$(GGML_PREFIX)/lib -lggml -lggml-base
+else
+LLAMA_CPPFLAGS := -DSKILLCTL_NO_LLAMA
+LLAMA_LDFLAGS  :=
+endif
+CPPFLAGS += $(LLAMA_CPPFLAGS)
+LDFLAGS  += $(LLAMA_LDFLAGS)
+
 ifeq ($(OS),Windows_NT)
 CORE_SRC := $(filter-out core/sh_fs_posix.c,$(wildcard core/*.c))
 else
@@ -43,6 +58,9 @@ asan-smoke: asan
 	@SKILLCTL_HOME=/tmp/skillctl-asan-gate ./build/skillctl_asan status --json >/dev/null
 	@echo "asan smoke ok"
 
+# ggml's headers repeat typedefs (C11); -Wall flags it under -std=c99.
+core/sh_llama.o: CFLAGS += -Wno-typedef-redefinition
+
 all: $(BIN)
 
 $(BIN): $(CORE_OBJ) $(CLI_OBJ)
@@ -64,8 +82,8 @@ build/test_core: tests/test_core.c $(CORE_OBJ)
 
 asan:
 	@mkdir -p build
-	$(CC) -std=c99 -g -O1 -fsanitize=address,undefined -Icore -Icli $(ORT_CPPFLAGS) \
-		-o build/skillctl_asan $(CLI_SRC) $(CORE_SRC) $(ORT_LDFLAGS)
+	$(CC) -std=c99 -g -O1 -fsanitize=address,undefined -Icore -Icli $(ORT_CPPFLAGS) $(LLAMA_CPPFLAGS) -Wno-typedef-redefinition \
+		-o build/skillctl_asan $(CLI_SRC) $(CORE_SRC) $(ORT_LDFLAGS) $(LLAMA_LDFLAGS)
 
 gui:
 	cd gui && cargo build --release

@@ -28,6 +28,18 @@ static inline sh_bert *sh_bert_open(const char *model_path) {
     return NULL;
 }
 static inline void sh_bert_close(sh_bert *b) { (void)b; }
+static inline int sh_bert_embed_pool(sh_bert *b, const int64_t *ids, const int64_t *mask,
+                                     size_t n, int mean_pool, float **out_vec,
+                                     uint32_t *out_dim) {
+    (void)b;
+    (void)ids;
+    (void)mask;
+    (void)n;
+    (void)mean_pool;
+    (void)out_vec;
+    (void)out_dim;
+    return 0;
+}
 static inline int sh_bert_embed(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
                                 float **out_vec, uint32_t *out_dim) {
     (void)b;
@@ -58,6 +70,14 @@ void sh_bert_close(sh_bert *b);
  */
 int sh_bert_embed(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
                   float **out_vec, uint32_t *out_dim);
+
+/*
+ * Pooling choice matters: BGE-family encoders are trained on the [CLS] token,
+ * E5-family on the mean of the token states. Using the wrong one degrades
+ * similarity without failing, so the caller names it explicitly.
+ */
+int sh_bert_embed_pool(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
+                       int mean_pool, float **out_vec, uint32_t *out_dim);
 
 #endif
 

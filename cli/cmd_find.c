@@ -43,17 +43,20 @@
  */
 #define FIND_EXACT_NAME_BOOST 0.050
 
-/*/*
- * The dense list's RRF weight. It stays at the published value: a weight
- * that only exists to rescue a mismatched model would hide the real
- * problem instead of naming it. Measurements on the 80-query set, with the
- * bundled Chinese-only encoder against English skill bodies:
+/*
+ * The dense list's RRF weight, left at RRF's published 1.0: a weight exists
+ * to be justified, not tuned until a mismatched list stops hurting.
  *
- *   weight 1.0  -> Hit@1 0.812      weight 0.25 -> 0.875
- *   weight 0.5  -> Hit@1 0.838      no dense    -> 0.912
+ * Measured on the 80-query set with the multilingual F2LLM-v2-80M encoder
+ * (Q8_0 GGUF, 320-dim, vectors over name+description+profile):
  *
- * So the dense list is opt-in (--mode hybrid / vector) rather than part of
- * `auto`. Swap in a model that reads the corpus and hybrid earns its place.
+ *   weight 1.0  -> Hit@1 0.825      weight 0.5  -> 0.762
+ *   weight 0.25 -> Hit@1 0.775      lexical only -> 0.912
+ *
+ * On this corpus the lexical stack already covers what the encoder adds, so
+ * dense is opt-in (--mode hybrid / vector) rather than part of `auto`. The
+ * path stays because a corpus with fewer exact identifiers, or a stronger
+ * encoder, changes the balance - measure before enabling.
  */
 #define FIND_DENSE_WEIGHT 1.0
 

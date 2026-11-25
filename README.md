@@ -158,57 +158,67 @@ skillctl show godot-ui --meta                    # 只要元信息，不取正�
 
 规模上的意义：in-context 路由的拐点约在 N≈500（Enrich-Retrieve-Rank 实测 0.85→0.12），这台机器 766 个技能已经越过拐点；Progressive Disclosure 在 Skill-Use 上正确激活率只有 0.11%（Gavel, 2609.15982）。一层渐进披露足够，第二层更深的路由从不帮忙（REALM 2026, 2607.17598）——所以这里只有 `find` → `show` 两步。
 
-### 向量路（ONNX，进程内）
+### 向量路（进程内，无 Python）
 
-向量路**不依赖 Python**：ONNX Runtime 是 C 库，模型是一个 `.onnx` 文件，分词是本仓库里的
-`core/sh_wordpiece.c`（BERT WordPiece，读 `vocab.txt`）。`skillctl embed` 和 `skillctl find`
-是同一个二进制，没有子进程、没有 Python 解释器。
+两条后端，都是 C 进程内、无子进程、无 Python：
 
-```
-# 模型放在 <store>/models/<任意名>/，含 model_qint8.onnx（或 model.onnx）+ vocab.txt
-ls ~/.skillctl/models/bge-small-zh-v1.5/
-skillctl embed                                  # 生成 index/vectors.bin
-skillctl find --mode hybrid "flutter 状态管理"   # 词面 + 稠密
-skillctl find --mode vector "..."               # 只用稠密
-```
-
-- `SKILLCTL_ONNX_MODEL` 可指向任意目录，**模型可替换**：任何 BERT 系、带 `vocab.txt` 的
-  ONNX 编码器都能直接用（bge / gte / all-MiniLM …）。
-- 编好的向量按内容哈希增量复用；换模型会导致维度变化，`embed` 会拒绝混写并要求重建。
-- 没有 ONNX Runtime 的机器上编译时自动降级（`SKILLCTL_NO_ONNX`），`find` 不受影响。
-
-**为什么 `auto` 默认不启用稠密路（实测）**
-
-当前随仓库的是 ModelScope 上的 `Maiteka/bge-small-zh-v1.5-onnx` —— int8 后 **23MB**，
-满足"ONNX + C 分词 + <100MB"这三个约束。但它是**中文单语**模型，而 skill 正文是英文。
-在 80 条评测集上给稠密路不同的 RRF 权重：
-
-| 稠密路权重 | Hit@1 | MRR@10 | Recall@10 |
+| 后端 | 运行时 | 分词器 | 适合 |
 |---|---|---|---|
-| 1.0（RRF 标准） | 0.812 | 0.865 | 0.950 |
-| 0.5 | 0.838 | 0.893 | 1.000 |
-| 0.25 | 0.875 | 0.916 | 1.000 |
-| 0.10 | 0.875 | 0.919 | 0.988 |
-| **不启用（当前默认）** | **0.912** | **0.940** | 0.988 |
+| **GGUF** | llama.cpp（C 库） | 模型自带（byte-level BPE） | **decoder 系嵌入模型**：Qwen3-Embedding / F2LLM-v2 |
+| ONNX | ONNX Runtime（C 库） | `vocab.txt`→WordPiece；`tokenizer.json`→Unigram | BERT 系（bge、XLM-R、E5） |
 
-rank 如此是因为模型读不懂英文：探针里"Blender FBX 导出"与"Flutter 状态管理"这对**不相关**
-文本的余弦（0.671）反而高于真正相关的跨语言对（0.491）。它的排名是噪声，任何正权重都会
-稀释真正的词面证据。
+```
+# 当前随装的模型（GGUF，llama.cpp 后端）
+ls ~/.skillctl/models/f2llm-80m-gguf/      # F2LLM-v2-80M.Q8_0.gguf  87MB
+skillctl embed                              # 生成 index/vectors.bin
+skillctl find --mode hybrid "flutter 状态管理"
+SKILLCTL_GGUF_MODEL=/path/to/model.gguf     # 换任意 GGUF 嵌入模型
+SKILLCTL_ONNX_MODEL=/path/to/dir            # 换 ONNX 模型（含 vocab.txt 或 tokenizer.json）
+```
 
-所以：**权重保持 1.0（RRF 的公布值，不为迁就错配的模型而调参），稠密路改为显式
-`--mode hybrid` 才启用。** 这不是放弃向量路——是把它交给"模型确实读得懂语料"的场景。
+模型完全可替换：GGUF 由 llama.cpp 加载，ONNX 由形状推断，分词器按目录里存在
+`vocab.txt`（WordPiece）还是 `tokenizer.json`（Unigram）自动选择。
 
-**体积约束的真相**：真正多语言的 BERT 系编码器必然带大词表（25 万词元），光嵌入表就
-~96M 参数，int8 后最小也在 118–150MB（`multilingual-e5-small` 约 150MB，且是
-SentencePiece 分词，C 里实现成本高）。**"<100MB + 真多语言 + WordPiece"三者不可兼得**；
-本仓库选择守住 100MB 上限，接受"中文单语"，并把替换模型的接口留好。
+**当前模型：F2LLM-v2-80M（Q8_0 GGUF，87MB）**
 
-评测对照：`bash tests/router_eval.sh` 走 `auto`；要看稠密路效果需在脚本里传
-`--mode hybrid`（`find` 的参数），或用 `--explain` 观察 `vec #n` 是否非零。
+- Qwen3 架构、80M 参数、320 维、**last-token 池化**、200+ 语言、无投影层
+- 量化后 87MB，满足"<100MB + 真多语言"这两个此前互斥的条件
+- 实测编码 320 维向量，跨语言判别正常：`flutter 状态管理` ↔ 英文
+  `Manages application and ephemeral state…` 余弦 **0.629**，与不相关英文 **0.168**
+
+**为什么是 decoder 模型而不是 BERT**：先试过 BERT 系 GGUF（multilingual-e5-small
+的多个转换版），llama.cpp 1.0.0 下要么拒绝加载（缺 `bert.token_type_count`），要么
+加载成功但产出退化向量——不相关文本对余弦 0.953 反而高于相关对 0.934。逐 token
+embedding 也拿不到（全零）。Qwen3 这类 decoder 的 last-token 池化才是 llama.cpp
+验证充分的路径，换成 F2LLM 后判别力立即正常。**这条经验写在这里，避免以后再走一遍。**
+
+**稠密路为什么默认关闭（实测）**
+
+80 条查询集上，向量只编码 `name + description + profile`（正文留给 BM25F，
+避免"向量读不到正文深处却和正文检索竞争"），稠密路的 RRF 权重扫描：
+
+| 稠密路权重 | Hit@1 | MRR@10 |
+|---|---|---|
+| 1.0（RRF 标准） | 0.825 | 0.887 |
+| 0.5 | 0.762 | 0.858 |
+| 0.25 | 0.775 | 0.865 |
+| **不启用（`auto` 默认）** | **0.912** | **0.940** |
+
+逐层看，稠密路让每一层都略降（A 1.000→0.944、C 1.000→0.933、E 0.833→0.500）。
+原因是这个语料的技术标识符（`is_instance_valid`、`bpy.ops export_scene`）只有
+词面检索能精确命中，而 320 维语义摘要无法表达它们；等权 RRF 会把这类精确命中挤到
+第二位。
+
+所以：**权重保持 RRF 的公布值 1.0，稠密路改为显式 `--mode hybrid` / `--mode vector`
+才启用**。要在某台机器/某个语料上启用它，先用 `tests/router_eval.sh` 对照
+`ROUTER_MODE=hybrid` 与默认值，别凭感觉开。
+
+**已实现但未启用**：`--mode vector` 单路、`--explain` 显示 `vec #n` 排名、
+`SKILLCTL_NO_ONNX` / `SKILLCTL_NO_LLAMA` 编译期降级（缺库时整条路消失，`find` 不受影响）。
 
 ### 行为约定
 
-- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`（auto 默认只用词面+元数据两路，hybrid 才加稠密路）；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
+- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`（auto 默认只用词面+元数据两路；稠密路需显式 hybrid/vector，理由见上节实测）；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
 - `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**（同名不同内容在这类机器上很常见，静默取第一条是错误行为）
 - `find` **不按名字合并**结果：索引期已经合并了正文近重复的变体，剩下的同名条目是真正不同的内容，调用方需要两条并列才能按 id 选一个
 - `find`/`show` 只读，不触碰磁盘上的 skill；`index` 只写 store 下的 `index/`

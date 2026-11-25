@@ -29,8 +29,7 @@ static char *vectors_path(const char *store_home) {
  * feeds the embedder so both land in the same semantic space. */
 static char *compose_text(const sh_index_fields *f) {
     size_t n = strlen(f->name ? f->name : "") + strlen(f->desc ? f->desc : "") +
-               strlen(f->profile ? f->profile : "") +
-               strlen(f->body ? f->body : "") + 8;
+               strlen(f->profile ? f->profile : "") + 8;
     char *out = malloc(n);
     size_t at = 0;
 
@@ -55,11 +54,14 @@ static char *compose_text(const sh_index_fields *f) {
         at += l;
         out[at++] = '\n';
     }
-    if (f->body && f->body[0]) {
-        size_t l = strlen(f->body);
-        memcpy(out + at, f->body, l);
-        at += l;
-    }
+    /*
+     * The body is deliberately excluded. A dense vector is capped at a few
+     * hundred tokens, so a skill whose decisive signal sits deep in a long
+     * SKILL.md would be embedded as its name and nothing else - and then
+     * compete, with a coarse similarity, against the lexical list that did
+     * read the body. Leaving the body to BM25F makes the two lists
+     * complementary: meaning here, terms there.
+     */
     out[at] = '\0';
     return out;
 }

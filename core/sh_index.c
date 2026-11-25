@@ -1410,7 +1410,8 @@ int sh_index_run_command(const char *work_dir, const char *command, const char *
 
     cmdline = malloc(strlen(command) + strlen(in_path) + strlen(out_path) + 16);
     if (!cmdline) goto done;
-    sprintf(cmdline, "%s < \"%s\" > \"%s\"", command, in_path, out_path);
+    snprintf(cmdline, strlen(command) + strlen(in_path) + strlen(out_path) + 16,
+             "%s < \"%s\" > \"%s\"", command, in_path, out_path);
 
     {
         int status = system(cmdline);

@@ -123,6 +123,11 @@ static OrtValue *make_input(sh_bert *b, const char *name, const int64_t *ids,
 
 int sh_bert_embed(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
                   float **out_vec, uint32_t *out_dim) {
+    return sh_bert_embed_pool(b, ids, mask, n, 0, out_vec, out_dim);
+}
+
+int sh_bert_embed_pool(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
+                       int mean_pool, float **out_vec, uint32_t *out_dim) {
     OrtValue *inputs[BERT_MAX_INPUTS];
     OrtValue *output = NULL;
     OrtTensorTypeAndShapeInfo *info = NULL;
@@ -167,12 +172,26 @@ int sh_bert_embed(sh_bert *b, const int64_t *ids, const int64_t *mask, size_t n,
 
     if (b->api->GetTensorMutableData(output, (void **)&data) != NULL || !data) goto cleanup;
 
-    /* Rank 3 is [batch, seq, hidden]: the CLS token is the first row, which
-     * is what BERT-derived sentence encoders are trained to pool. Rank 2 is
-     * already [batch, hidden]. */
+    /* Rank 3 is [batch, seq, hidden]; rank 2 is already pooled. */
     vec = malloc((size_t)dim * sizeof(float));
     if (!vec) goto cleanup;
-    memcpy(vec, data, (size_t)dim * sizeof(float));
+    if (rank == 3 && mean_pool) {
+        size_t rows = (size_t)shape[1];
+        size_t used = 0;
+
+        if (rows > n) rows = n;
+        memset(vec, 0, (size_t)dim * sizeof(float));
+        for (size_t r = 0; r < rows; r++) {
+            if (mask && mask[r] == 0) continue; /* skip padding */
+            for (uint32_t k = 0; k < dim; k++)
+                vec[k] += data[r * (size_t)dim + k];
+            used++;
+        }
+        if (used == 0) goto cleanup;
+        for (uint32_t k = 0; k < dim; k++) vec[k] /= (float)used;
+    } else {
+        memcpy(vec, data, (size_t)dim * sizeof(float));
+    }
 
     for (uint32_t i = 0; i < dim; i++) norm += (double)vec[i] * (double)vec[i];
     norm = sqrt(norm);
