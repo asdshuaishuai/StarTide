@@ -1,0 +1,103 @@
+# skillctl router baseline — heuristic v1 (name + description + source path only)
+# frozen binary: /tmp/skillctl-router-baseline
+#   sha256 6d711b4489355ab09525bb148efd9d04d8741be800fe7a220c55c871b79ab556
+#   copied from build/skillctl before the engine rewrite; build/skillctl was still
+#   byte-identical to this copy when the baseline was recorded.
+# catalog: ~/.skillctl/catalog.jsonl (766 entries)
+# date: 2026-11-25 14:42:41 CST
+# command: bash tests/router_eval.sh --bin /tmp/skillctl-router-baseline --tsv tests/router_queries.tsv
+#
+# per-layer METRICS (same binary, one layer at a time):
+#   NOTE: E (body-only) is 0.000 because v1 scores only name/description/source-path
+#   and never reads SKILL.md bodies (core/sh_route.c). It is a measured blind spot,
+#   not a missing metric: every E query's signal token was verified absent from all
+#   descriptions and names (see the E layer in tests/router_queries.tsv).
+#   A  METRICS queries=18 hit1=1.000 mrr10=1.000 recall3=1.000 recall10=1.000 ndcg10=1.000
+#   B  METRICS queries=20 hit1=0.800 mrr10=0.825 recall3=0.850 recall10=0.900 ndcg10=0.843
+#   C  METRICS queries=15 hit1=0.933 mrr10=0.967 recall3=1.000 recall10=1.000 ndcg10=0.975
+#   D  METRICS queries=10 hit1=1.000 mrr10=1.000 recall3=1.000 recall10=1.000 ndcg10=1.000
+#   E  METRICS queries=12 hit1=0.000 mrr10=0.000 recall3=0.000 recall10=0.000 ndcg10=0.000
+#   F  METRICS queries=5 hit1=0.800 mrr10=0.867 recall3=1.000 recall10=1.000 ndcg10=0.900
+#
+  ok rank=1  swift-testing  ->  swift-testing
+  ok rank=1  shader-basics  ->  shader-basics
+  ok rank=1  particles-vfx  ->  particles-vfx
+  ok rank=1  steam-deck  ->  steam-deck
+  ok rank=1  macos-spm-app-packaging  ->  macos-spm-app-packaging
+  ok rank=1  ios-simulator-skill  ->  ios-simulator-skill
+  ok rank=1  godot-code-review  ->  godot-code-review
+  ok rank=1  flutter-building-forms  ->  flutter-building-forms
+  ok rank=1  blender-3d-modeling  ->  blender-3d-modeling
+  ok rank=1  guide-swiftui-animations  ->  guide-swiftui-animations
+  ok rank=1  ability system  ->  ability-system
+  ok rank=1  save systems  ->  save-systems
+  ok rank=1  dialogue manager  ->  dialogue-manager
+  ok rank=1  multiplayer sync  ->  multiplayer-sync
+  ok rank=1  shader programming  ->  shader-programming
+  ok rank=1  input handling  ->  input-handling
+  ok rank=1  tween animation  ->  tween-animation
+  ok rank=1  event bus  ->  event-bus
+  ok rank=1  电子表格 公式 创建 编辑  ->  excel
+  ok rank=1  创建 读取 演示文稿 幻灯片  ->  office
+  ok rank=1  生成 漂亮 幻灯片 商务 教育 医疗  ->  ppt-generator
+  ok rank=1  自动生成 word 文档 标题 正文  ->  word-generator
+  ok rank=1  仓颉 编译报错 版本回归 诊断  ->  cangjie-build-diagnose
+  ok rank=1  仓颉 代码审查 内存泄漏 性能优化  ->  cangjie-code-review
+  ok rank=1  仓颉语言 标准库 工具链 学习  ->  cangjie-coding
+  ok rank=1  游戏 设计稿 拆图 切图 组装  ->  maker-ui-workflow
+  ok rank=1  lua ui 导出 json 缺图 检查  ->  lua-ui-to-json
+  ok rank=1  taptap maker local 预览 提交  ->  taptap-maker-local
+  ok rank=1  腾讯文档 在线文档 知识库 新建  ->  tencent-docs
+  ok rank=1  演示文稿 这一页讲什么 全文结构  ->  workbuddy-pptx
+  ok rank=1  公文 合同 研报 排版美化  ->  workbuddy-docx
+  ok rank=1  幻灯片 设计稿 路演 提案  ->  ardot-slides
+  ok rank=1  设计稿转代码 网页 还原  ->  ardot-design-to-code
+  ok rank=1  海报设计 宣传 横幅 封面  ->  ardot-poster
+  MISS rank=0  godot 状态机 敌人 巡逻  ->  state-machine
+  late rank=3  swift 并发 actor 取消  ->  guide-swift-concurrency
+  MISS rank=0  flutter 主题 配色 字体  ->  flutter-theming-apps
+  late rank=6  unity 物理 刚体 射线检测  ->  unity-physics
+  ok rank=1  particle effects subemitters trails attractors  ->  particles-vfx
+  ok rank=1  smooth follow camera screen shake zones  ->  camera-system
+  ok rank=1  input map action rebinding gamepads  ->  input-handling
+  ok rank=1  custom resource item stats editor integration  ->  resource-pattern
+  late rank=2  scene tree composition inheritance node hierarchy  ->  scene-organization
+  ok rank=1  synchronizer interpolation prediction lag compensation  ->  multiplayer-sync
+  ok rank=1  service locator autoload injection patterns  ->  dependency-injection
+  ok rank=1  ragdoll soft body jolt physics interpolation  ->  physics-system
+  ok rank=1  tilemap autotiling terrain sets paint layers  ->  godot-tilemap
+  ok rank=1  audio bus routing beat sync effects  ->  godot-audio
+  ok rank=1  characterbody2d slope handling enemy controller  ->  godot-2d-movement
+  ok rank=1  skeletal animation mixer morph targets  ->  threejs-animation
+  ok rank=1  effectcomposer bloom depth field outline passes  ->  threejs-postprocessing
+  ok rank=1  gltf loader draco ktx2 compression  ->  threejs-loaders
+  ok rank=1  instruments time profiler memory leaks energy  ->  performance-profiling
+  ok rank=1  godot scene tree 节点树 实例化  ->  godot-nodes-scenes
+  ok rank=1  godot signals 分组 广播  ->  godot-signals-groups
+  ok rank=1  flutter navigation 路由 跳转  ->  flutter-implementing-navigation-and-routing
+  ok rank=1  swiftui charts 坐标轴 选择  ->  guide-swiftui-charts
+  ok rank=1  unity animator blend tree 混合树  ->  unity-animation
+  ok rank=1  threejs raycasting 拾取 相机控制  ->  threejs-interaction
+  ok rank=1  blender uv 展开 texel density  ->  uv-workflow
+  ok rank=1  blender rigging IK FK 骨骼  ->  rigging
+  ok rank=1  unreal niagara 粒子特效  ->  unreal-niagara
+  ok rank=1  unreal blueprint 蓝图 编译  ->  unreal-blueprints
+  MISS rank=0  notifyListeners 状态通知 监听  ->  flutter-managing-state
+  MISS rank=0  is_instance_valid NOTIFICATION_EDITOR_PRE_SAVE  ->  gdscript-advanced
+  MISS rank=0  shader_type hint_albedo 顶点 着色器  ->  godot-shaders
+  MISS rank=0  app_userdata save_callable load_callable 存档  ->  save-load
+  MISS rank=0  next_line_id visible_characters 逐字显示  ->  dialogue-system
+  MISS rank=0  bpy.ops export_scene blend_path 批处理  ->  blender-scripting
+  MISS rank=0  gl_FragColor begin_vertex 顶点着色器 片元  ->  threejs-shaders
+  MISS rank=0  this.physics.add.collider this.physics.add.overlap 碰撞回调  ->  phaser-arcade-physics
+  MISS rank=0  HKQuantityTypeIdentifier 健康样本  ->  healthkit
+  MISS rank=0  com.unity.ai.navigation 包版本  ->  unity-navmesh
+  MISS rank=0  ASC_KEY_ID ASC_ISSUER_ID 密钥配置  ->  app-store-preflight-skills
+  MISS rank=0  with-deps 浏览器安装  ->  agent-browser
+  ok rank=1  blender export fbx gltf normals scale pivot  ->  export-pipeline@6dae4f79
+  ok rank=1  godot export preset platform settings github actions  ->  export-pipeline@b5cf5b90
+  ok rank=1  ai 摆烂 不搜索 只等指示 大厂 话术  ->  pua@b9af263b
+  late rank=3  deepseek-v4-flash glm-5 kimi-k2.6 model id  ->  ai-model-web@a81eac66
+  ok rank=1  testing strategy swiftui watchos unit coverage  ->  testing-strategy@4760a7f5
+
+METRICS queries=80 hit1=0.775 mrr10=0.792 recall3=0.812 recall10=0.825 ndcg10=0.800

@@ -28,6 +28,8 @@ static void print_help(void) {
         "  find        rank skills against a free-text intent (skill router)\n"
         "  show        print the SKILL.md of one skill (on-demand fetch)\n"
         "  router-skill print (or --install) the router skill for agents\n"
+        "  index       build the BM25F index over every skill body\n"
+        "  embed       build the vector index (needs SKILLCTL_EMBEDDER)\n"
         "\n"
         "Options:\n"
         "  --json            machine readable output\n"
@@ -42,6 +44,10 @@ static void print_help(void) {
         "  --no-hash         skip content hashing (faster, less precise)\n"
         "  --meta            with show: name/description/path instead of the body\n"
         "  --install         with router-skill: write it into the agent root\n"
+        "  --mode <m>        with find: auto, bm25, vector or hybrid\n"
+        "  --explain         with find: show per-list ranks\n"
+        "  --rebuild         with index: force a full rebuild\n"
+        "  --if-stale        with index: skip when the catalog has not moved\n"
         "  --version         print the version\n"
         "  --help            print this help\n"
         "\n"
@@ -63,6 +69,8 @@ static int dispatch(int argc, char **argv) {
     if (strcmp(cmd, "find") == 0 || strcmp(cmd, "route") == 0) return cmd_find(argc, argv);
     if (strcmp(cmd, "show") == 0 || strcmp(cmd, "open") == 0) return cmd_show(argc, argv);
     if (strcmp(cmd, "router-skill") == 0) return cmd_router_skill(argc, argv);
+    if (strcmp(cmd, "index") == 0) return cmd_index(argc, argv);
+    if (strcmp(cmd, "embed") == 0) return cmd_embed(argc, argv);
 
     fprintf(stderr, "skillctl: unknown command '%s'\n", cmd);
     print_help();
@@ -93,7 +101,8 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--verbose") == 0 || strcmp(a, "-v") == 0) { cli_verbose = 1; continue; }
         if (strcmp(a, "--no-hash") == 0 || strcmp(a, "--no-catalog") == 0 ||
             strcmp(a, "--stream") == 0 || strcmp(a, "--meta") == 0 ||
-            strcmp(a, "--install") == 0) {
+            strcmp(a, "--install") == 0 || strcmp(a, "--explain") == 0 ||
+            strcmp(a, "--rebuild") == 0 || strcmp(a, "--if-stale") == 0) {
             rest[rest_count++] = argv[i];
             continue;
         }
@@ -106,6 +115,16 @@ int main(int argc, char **argv) {
         if (strcmp(a, "--limit") == 0 && i + 1 < argc) { cli_limit = atol(argv[++i]); continue; }
         if (strncmp(a, "--root=", 7) == 0) { cli_extra_root = a + 7; continue; }
         if (strcmp(a, "--root") == 0 && i + 1 < argc) { cli_extra_root = argv[++i]; continue; }
+        if (strncmp(a, "--mode=", 7) == 0) {
+            rest[rest_count++] = "--mode=";
+            rest[rest_count - 1] = argv[i];
+            continue;
+        }
+        if (strcmp(a, "--mode") == 0 && i + 1 < argc) {
+            rest[rest_count++] = argv[i];
+            rest[rest_count++] = argv[++i];
+            continue;
+        }
         if (strncmp(a, "--scope=", 8) == 0) { cli_scope = a + 8; continue; }
         if (strcmp(a, "--scope") == 0 && i + 1 < argc) { cli_scope = argv[++i]; continue; }
 

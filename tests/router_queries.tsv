@@ -1,0 +1,89 @@
+# router query set -- query<TAB>expected
+# expected: NAME (any variant with that name) or NAME@HASH8 (entry id must start with HASH8)
+# layers: A=18 exact/near-exact EN, B=20 zh intent, C=15 EN natural language, D=10 mixed, E=12 body-only, F=5 dup-disambiguation
+# ---- A english exact/near-exact (18) ----
+swift-testing	swift-testing
+shader-basics	shader-basics
+particles-vfx	particles-vfx
+steam-deck	steam-deck
+macos-spm-app-packaging	macos-spm-app-packaging
+ios-simulator-skill	ios-simulator-skill
+godot-code-review	godot-code-review
+flutter-building-forms	flutter-building-forms
+blender-3d-modeling	blender-3d-modeling
+guide-swiftui-animations	guide-swiftui-animations
+ability system	ability-system
+save systems	save-systems
+dialogue manager	dialogue-manager
+multiplayer sync	multiplayer-sync
+shader programming	shader-programming
+input handling	input-handling
+tween animation	tween-animation
+event bus	event-bus
+# ---- B chinese intent (20) ----
+电子表格 公式 创建 编辑	excel
+创建 读取 演示文稿 幻灯片	office
+生成 漂亮 幻灯片 商务 教育 医疗	ppt-generator
+自动生成 word 文档 标题 正文	word-generator
+仓颉 编译报错 版本回归 诊断	cangjie-build-diagnose
+仓颉 代码审查 内存泄漏 性能优化	cangjie-code-review
+仓颉语言 标准库 工具链 学习	cangjie-coding
+游戏 设计稿 拆图 切图 组装	maker-ui-workflow
+lua ui 导出 json 缺图 检查	lua-ui-to-json
+taptap maker local 预览 提交	taptap-maker-local
+腾讯文档 在线文档 知识库 新建	tencent-docs
+演示文稿 这一页讲什么 全文结构	workbuddy-pptx
+公文 合同 研报 排版美化	workbuddy-docx
+幻灯片 设计稿 路演 提案	ardot-slides
+设计稿转代码 网页 还原	ardot-design-to-code
+海报设计 宣传 横幅 封面	ardot-poster
+godot 状态机 敌人 巡逻	state-machine
+swift 并发 actor 取消	guide-swift-concurrency
+flutter 主题 配色 字体	flutter-theming-apps
+unity 物理 刚体 射线检测	unity-physics
+# ---- C english natural language (15) ----
+particle effects subemitters trails attractors	particles-vfx
+smooth follow camera screen shake zones	camera-system
+input map action rebinding gamepads	input-handling
+custom resource item stats editor integration	resource-pattern
+scene tree composition inheritance node hierarchy	scene-organization
+synchronizer interpolation prediction lag compensation	multiplayer-sync
+service locator autoload injection patterns	dependency-injection
+ragdoll soft body jolt physics interpolation	physics-system
+tilemap autotiling terrain sets paint layers	godot-tilemap
+audio bus routing beat sync effects	godot-audio
+characterbody2d slope handling enemy controller	godot-2d-movement
+skeletal animation mixer morph targets	threejs-animation
+effectcomposer bloom depth field outline passes	threejs-postprocessing
+gltf loader draco ktx2 compression	threejs-loaders
+instruments time profiler memory leaks energy	performance-profiling
+# ---- D mixed zh+en (10) ----
+godot scene tree 节点树 实例化	godot-nodes-scenes
+godot signals 分组 广播	godot-signals-groups
+flutter navigation 路由 跳转	flutter-implementing-navigation-and-routing
+swiftui charts 坐标轴 选择	guide-swiftui-charts
+unity animator blend tree 混合树	unity-animation
+threejs raycasting 拾取 相机控制	threejs-interaction
+blender uv 展开 texel density	uv-workflow
+blender rigging IK FK 骨骼	rigging
+unreal niagara 粒子特效	unreal-niagara
+unreal blueprint 蓝图 编译	unreal-blueprints
+# ---- E body-only signal (12) ----
+notifyListeners 状态通知 监听	flutter-managing-state
+is_instance_valid NOTIFICATION_EDITOR_PRE_SAVE	gdscript-advanced
+shader_type hint_albedo 顶点 着色器	godot-shaders
+app_userdata save_callable load_callable 存档	save-load
+next_line_id visible_characters 逐字显示	dialogue-system
+bpy.ops export_scene blend_path 批处理	blender-scripting
+gl_FragColor begin_vertex 顶点着色器 片元	threejs-shaders
+this.physics.add.collider this.physics.add.overlap 碰撞回调	phaser-arcade-physics
+HKQuantityTypeIdentifier 健康样本	healthkit
+com.unity.ai.navigation 包版本	unity-navmesh
+ASC_KEY_ID ASC_ISSUER_ID 密钥配置	app-store-preflight-skills
+with-deps 浏览器安装	agent-browser
+# ---- F duplicate disambiguation (5) ----
+blender export fbx gltf normals scale pivot	export-pipeline@6dae4f79
+godot export preset platform settings github actions	export-pipeline@b5cf5b90
+ai 摆烂 不搜索 只等指示 大厂 话术	pua@b9af263b
+deepseek-v4-flash glm-5 kimi-k2.6 model id	ai-model-web@a81eac66
+testing strategy swiftui watchos unit coverage	testing-strategy@4760a7f5

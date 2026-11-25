@@ -133,17 +133,68 @@ skillctl link              # 真正替换
 把"所有 skill 的 description 都塞进 agent 上下文"换成"提问 → 命中 → 只读一个"：
 
 ```
-skillctl find "build a godot UI with shaders"   # 意图 → 排序后的候选（名字 + 一行描述）
+skillctl index                                   # 建全文索引（body 参与检索）
+skillctl find "build a godot UI with shaders"    # 意图 → 排序后的候选
 skillctl find --json --limit 5 "deploy macos app"
-skillctl show godot-ui                          # 按需取回该 skill 的 SKILL.md
-skillctl show godot-ui --meta                   # 只要元信息，不取正文
+skillctl find --explain "godot 状态机 敌人 巡逻"  # 每一路各自的排名
+skillctl show godot-ui                           # 按需取回该 skill 的 SKILL.md
+skillctl show godot-ui --meta                    # 只要元信息，不取正文
 ```
 
-- `find` 在 catalog 上做加权排序：名字精确/前缀/子串 > 描述命中 > 路径命中，
-  已入库和多来源有小幅加权；默认只输出前 8 条，每条一行，天然适合 agent 消费
-- `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**
-  （同名不同内容在这类机器上很常见，静默取第一条是错误行为）
-- `find`/`show` 只读，不触碰磁盘上的 skill
+### 算法与依据
+
+检索不是关键词匹配，而是一条按论文结论搭起来的流水线：
+
+| 组件 | 做法 | 依据 |
+|---|---|---|
+| **正文进索引** | 索引五个字段：name / description / profile / body / path。`profile` 是从正文**确定性抽取**的（H2/H3 标题、含 "when to use/适用" 的行、代码围栏语言、references 文件名），不调用任何模型 | SkillRouter（arXiv 2603.22455）：去掉 skill 正文，Hit@1 掉 29–44pp；描述级富化只能补回一部分，LLM 富化在元数据够用时中性甚至负收益（Enrich-Retrieve-Rank 2608.22695） |
+| **BM25F** | 字段权重 name 4.0 / desc 2.0 / profile 1.5 / body 1.0 / path 0.5；k1=1.2；每字段独立长度归一（b = 0.3/0.5/0.6/0.75/0.3）；IDF = ln(1+(N−df+0.5)/(df+0.5)) | Robertson & Zaragoza 2009；BM25F: Robertson/Zaragoza/Taylor, CIKM 2004 |
+| **中文 bigram** | CJK 连续段发重叠 bigram，ASCII 按 `_ - . / :` 切分，中英停用词表；查询与文档用同一套分词 | 无分词器 CJK 检索的经典做法 |
+| **OOV 术语扩展** | 只对**索引里不存在的**中文词做中英对照翻译后追加；索引里已有的词一律原样使用 | Manning/Raghavan/Schuetze, IIR ch.9 thesaurus expansion；实测无条件扩展会让常见译词（state/test）压过真实词面命中，故只补 OOV |
+| **索引期去重** | 建索引时按归一化名字分组，正文 5-gram shingle Jaccard ≥ 0.8 的变体合并为一个文档并记 `variants` 数 | SkillRouter 的三层假负例过滤（同名/trigram Jaccard/向量余弦）单独贡献 +4.0pp |
+| **多路召回 + RRF** | 三路各取 top-100：① BM25F 正文 ② 元数据启发式（名字精确/子串、描述、路径）③ 稠密向量（配置了 embedder 才有）；用 RRF k=60 融合，因为 BM25 与余弦分数不可比 | ToolRet（ACL 2025）：query/tool 词面重叠仅 ROUGE-L 0.06，单路不够；Cormack/Clarke/Buettcher, SIGIR 2009（RRF 无需分数归一）；Lost in Implicit Routing（2610.18522）：1000 个干扰技能让已加载技能召回从 73.6% 掉到 27.4%，hybrid 预选在大规模最强 |
+| **名字精确 boost** | 仅当**整条查询**归一化后等于某个技能名时加分。前后缀 boost 试过并已移除：`blender ...` 这类查询会被同名技能顶到第一，压过内容更匹配的结果 | 论文观测到名字在浅层注意力里占 26%，是早期对齐信号；但只应作用于真正的精确匹配 |
+| **精排（预留）** | top-20 交给可插拔 listwise 精排（默认关闭） | SkillRouter：K=50 反而 −2.0pp；pointwise 重排崩到 0.433，必须 listwise |
+
+规模上的意义：in-context 路由的拐点约在 N≈500（Enrich-Retrieve-Rank 实测 0.85→0.12），这台机器 766 个技能已经越过拐点；Progressive Disclosure 在 Skill-Use 上正确激活率只有 0.11%（Gavel, 2609.15982）。一层渐进披露足够，第二层更深的路由从不帮忙（REALM 2026, 2607.17598）——所以这里只有 `find` → `show` 两步。
+
+### 向量路（可选）
+
+引擎不内置模型：`SKILLCTL_EMBEDDER` 指向一个读 stdin、输出 JSON 数组的命令，`SKILLCTL_QUERY_EMBEDDER` 用于查询侧（缺省回退到前者）。
+
+```
+SKILLCTL_EMBEDDER='python3 embed.py' skillctl embed   # 生成 index/vectors.bin
+skillctl find --mode vector "..."                     # 只用向量路
+skillctl find --mode auto  "..."                      # 默认：有向量就 hybrid，否则 bm25
+```
+
+没有 embedder 时向量路整条跳过，`find` 自动退化成 BM25F + 元数据两路；连索引都没有时再退化成纯元数据启发式——任何一步缺失都不会让 `find` 不可用。
+
+### 行为约定
+
+- `find` 默认输出前 8 条、每条一行；`--mode` 可选 `auto|bm25|vector|hybrid`；`--explain` 打印每一路的排名（`[rrf … bm25 #n meta #n vec #n name #n]`）
+- `show` 接受名字、唯一前缀或 unit id；**同名多条会列候选并以退出码 2 报歧义**（同名不同内容在这类机器上很常见，静默取第一条是错误行为）
+- `find` **不按名字合并**结果：索引期已经合并了正文近重复的变体，剩下的同名条目是真正不同的内容，调用方需要两条并列才能按 id 选一个
+- `find`/`show` 只读，不触碰磁盘上的 skill；`index` 只写 store 下的 `index/`
+
+### 评测
+
+```
+bash tests/router_eval.sh                 # 80 条查询，输出 Hit@1/MRR@10/Recall@3/@10/nDCG@10
+bash tests/router_eval.sh --bin <binary>  # 对比别的版本
+```
+
+查询集分六层（精确名 / 中文意图 / 英文自然语言 / 中英混合 / **仅正文才有的信号** / 同名消歧），
+期望值支持 `name@hash8` 形式以指定同名中的具体变体。当前结果：
+
+| 指标 | 改造前（启发式） | 改造后 |
+|---|---|---|
+| Hit@1 | 0.775 | **0.900** |
+| MRR@10 | 0.792 | **0.927** |
+| Recall@3 | 0.812 | **0.950** |
+| Recall@10 | 0.825 | **0.988** |
+| nDCG@10 | 0.800 | **0.942** |
+| 仅正文信号层 Hit@1 | 0.000 | **0.833** |
 
 配合同仓库的 `skills/skill-router/SKILL.md`（也可 `skillctl router-skill` 直接打印）：
 
@@ -151,8 +202,7 @@ skillctl show godot-ui --meta                   # 只要元信息，不取正文
 skillctl router-skill --install   # 写进共享的 ~/.agents/skills/skill-router/
 ```
 
-之后 agent 只需要这一个 skill 的几十行指令，就能按意图检索全部 skill——
-不再需要把几百条 description 常驻上下文。
+这个 skill 里写死了强制规则：**必须先 `find` 再 `show`，禁止自己遍历 skill 目录或直接读 SKILL.md 路径**——那些路径是 store 的实现细节，绕过索引会让选择不可复现。
 
 ## 设计
 

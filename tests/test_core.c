@@ -12,6 +12,9 @@
 #include "sh_json.h"
 #include "sh_yaml.h"
 #include "sh_route.h"
+#include "sh_index.h"
+#include "sh_text.h"
+#include <math.h>
 
 static int failures = 0;
 static int checks = 0;
@@ -432,6 +435,115 @@ static void test_route(void) {
     free(cat.entries);
 }
 
+
+static void test_text_tokenizer(void) {
+    sh_text_tokens toks;
+    int found_godot = 0;
+    int found_export = 0;
+
+    memset(&toks, 0, sizeof(toks));
+    CHECK(sh_text_tokenize("godot_export", 12, &toks) == 1, "tokenize returned false");
+    for (size_t i = 0; i < toks.count; i++) {
+        if (strcmp(toks.items[i], "godot") == 0) found_godot = 1;
+        if (strcmp(toks.items[i], "export") == 0) found_export = 1;
+    }
+    CHECK(found_godot && found_export, "identifier separators should split godot_export");
+    CHECK(toks.count == 2, "godot_export should yield exactly two tokens, got %zu", toks.count);
+    sh_text_tokens_free(&toks);
+
+    /* U+5730 U+56FE = 地图: a two-character CJK run yields one bigram. */
+    memset(&toks, 0, sizeof(toks));
+    CHECK(sh_text_tokenize("\xe5\x9c\xb0\xe5\x9b\xb3", 6, &toks) == 1,
+          "CJK tokenize returned false");
+    CHECK(toks.count == 1, "a two-character CJK run yields one bigram, got %zu", toks.count);
+    CHECK(toks.count == 1 && strlen(toks.items[0]) == 6,
+          "the bigram should hold both characters");
+    sh_text_tokens_free(&toks);
+
+    memset(&toks, 0, sizeof(toks));
+    CHECK(sh_text_tokenize("the of and", 11, &toks) == 1, "stopword tokenize returned false");
+    CHECK(toks.count == 0, "stopwords must be dropped, got %zu tokens", toks.count);
+    sh_text_tokens_free(&toks);
+
+    CHECK(sh_text_is_stopword("the", 3) == 1, "the should be a stopword");
+    CHECK(sh_text_is_stopword("godot", 5) == 0, "godot should not be a stopword");
+}
+
+static void test_text_shingles(void) {
+    const char *a = "alpha beta gamma delta epsilon zeta eta theta";
+    const char *b = "alpha beta gamma delta epsilon zeta eta theta";
+    const char *c = "one two three four five six seven eight nine";
+
+    CHECK(fabs(sh_text_jaccard(a, strlen(a), b, strlen(b)) - 1.0) < 1e-9,
+          "identical texts should have Jaccard 1");
+    CHECK(sh_text_jaccard(a, strlen(a), c, strlen(c)) < 0.1,
+          "unrelated texts should have near-zero Jaccard");
+    CHECK(sh_text_near_duplicate(a, strlen(a), b, strlen(b), 0.8) == 1,
+          "identical texts must be near-duplicates at 0.8");
+    CHECK(sh_text_near_duplicate(a, strlen(a), c, strlen(c), 0.8) == 0,
+          "unrelated texts must not be near-duplicates");
+}
+
+static void test_text_profile(void) {
+    const char *body =
+        "## When to use\n"
+        "Use this when exporting a Godot project.\n"
+        "```python\n"
+        "print(1)\n"
+        "```\n"
+        "See references/notes.md for details.\n";
+    size_t len = 0;
+    char *p = sh_text_profile(body, strlen(body), &len);
+
+    CHECK(p != NULL && len > 0, "profile should extract something");
+    if (p) {
+        CHECK(strstr(p, "When to use") != NULL, "heading should be in the profile");
+        CHECK(strstr(p, "python") != NULL, "fence language should be in the profile");
+        CHECK(strstr(p, "notes.md") != NULL, "reference mention should be in the profile");
+        free(p);
+    }
+}
+
+static void test_index_bm25f(void) {
+    uint32_t tf[SH_INDEX_FIELD_COUNT] = {2, 0, 0, 0, 0};
+    uint32_t len[SH_INDEX_FIELD_COUNT] = {3, 0, 0, 0, 0};
+    double avg[SH_INDEX_FIELD_COUNT] = {3, 0, 0, 0, 0};
+    double idf = sh_index_idf(10, 3);
+    double expected_tfn;
+    double expected;
+
+    CHECK(idf > 0.0, "idf must be positive");
+    CHECK(fabs(idf - log(1.0 + 7.5 / 3.5)) < 1e-9, "idf formula mismatch");
+
+    /* Only the name field fires and its normaliser is exactly 1.0 (len ==
+     * avg), so tf~ = w_name * tf = 8.0 and score = idf * 8 / (k1 + 8). */
+    expected_tfn = sh_index_field_weight[0] * 2.0;
+    expected = idf * expected_tfn / (SH_INDEX_K1 + expected_tfn);
+    CHECK(fabs(sh_index_bm25f_term(10, 3, tf, len, avg) - expected) < 1e-9,
+          "bm25f term mismatch: %.6f vs %.6f", sh_index_bm25f_term(10, 3, tf, len, avg),
+          expected);
+
+    /* The same tf in a longer field must score lower. */
+    {
+        uint32_t long_len[SH_INDEX_FIELD_COUNT] = {30, 0, 0, 0, 0};
+        CHECK(sh_index_bm25f_term(10, 3, tf, long_len, avg) < expected,
+              "length normalisation should reduce the score");
+    }
+}
+
+static void test_index_vectors(void) {
+    float v[3] = {3.0f, 0.0f, 4.0f};
+
+    CHECK(sh_index_normalize_vector(v, 3) == 1, "normalize should succeed");
+    CHECK(fabs((double)v[0] - 0.6) < 1e-6 && fabs((double)v[2] - 0.8) < 1e-6,
+          "normalised vector should be unit length");
+
+    v[0] = 0.0f;
+    v[1] = 0.0f;
+    v[2] = 0.0f;
+    CHECK(sh_index_normalize_vector(v, 3) == 0, "a zero vector cannot be normalised");
+}
+
 int main(void) {
     test_paths();
     test_yaml_basic();
@@ -444,6 +556,11 @@ int main(void) {
     test_hash();
     test_json();
     test_route();
+    test_text_tokenizer();
+    test_text_shingles();
+    test_text_profile();
+    test_index_bm25f();
+    test_index_vectors();
     test_fs_basics();
     test_tree_hash_stability();
 
