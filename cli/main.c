@@ -29,7 +29,7 @@ static void print_help(void) {
         "  show        print the SKILL.md of one skill (on-demand fetch)\n"
         "  router-skill print (or --install) the router skill for agents\n"
         "  index       build the BM25F index over every skill body\n"
-        "  embed       build the vector index (needs SKILLCTL_EMBEDDER)\n"
+        "  embed       build the vector index for the configured model\n"
         "\n"
         "Options:\n"
         "  --json            machine readable output\n"

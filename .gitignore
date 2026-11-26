@@ -3,6 +3,9 @@ build/
 gui/target/
 StarTide.app/
 
+# cross-compile output and the assembled app bundle
+build-win/
+
 # object files and dependency files from make
 *.o
 *.d

@@ -45,7 +45,33 @@ const fn rgba_hex(hex: u32, alpha: f32) -> Rgba {
 /* macOS 毛玻璃：面板半透明，模糊材质从窗口后透出。 */
 const TRANSPARENT: Rgba = rgba_hex(0x000000, 0.0);
 
-/* 可切换主题：深/浅 × 强调色。所有界面颜色都从 Palette 取。 */
+/* 四套设计语言。Studio 是默认（当前外观）；其余三套各自是一种完整的设计立场，
+ * 不只是换色：极简（留白与单一强调）、粗野（浏览器默认材料与暴露结构）、
+ * 拟物（可命名的真实材质与统一光照）。 */
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum DesignStyle {
+    Studio,
+    Minimal,
+    Brutal,
+    Skeuo,
+}
+
+impl Default for DesignStyle {
+    fn default() -> Self {
+        DesignStyle::Studio
+    }
+}
+
+const STYLES: [(&str, DesignStyle); 4] = [
+    ("Studio", DesignStyle::Studio),
+    ("极简", DesignStyle::Minimal),
+    ("粗野", DesignStyle::Brutal),
+    ("拟物", DesignStyle::Skeuo),
+];
+
+/* 可切换主题：设计语言 × 深/浅 × 强调色。所有界面颜色都从 Palette 取。
+ * radius/pad/title_size/caps/mono_head/rules/shadow/inset 是"姿态"token，
+ * 让三套设计语言共用同一份渲染代码，而不是各写一遍布局。 */
 #[derive(Clone, Copy)]
 struct Palette {
     side: Rgba,
@@ -70,6 +96,19 @@ struct Palette {
     badge_bg: Rgba,
     statusbar_bg: Rgba,
     accent: Rgba,
+    /* 设计语言 token */
+    style: DesignStyle,
+    radius: f32,
+    radius_sm: f32,
+    pad: f32,
+    title_size: f32,
+    caps: bool,
+    mono_head: bool,
+    rules: bool,
+    shadow: bool,
+    inset: bool,
+    page: Rgba,
+    page2: Rgba, /* alpha 0 = 纯色，不画渐变 */
 }
 
 impl gpui::Global for Palette {}
@@ -84,9 +123,9 @@ fn with_alpha(c: Rgba, a: f32) -> Rgba {
     Rgba { r: c.r, g: c.g, b: c.b, a }
 }
 
-/* 深浅两套底色，强调色动态注入（sel/focus/accent 跟随）。 */
-fn build_palette(dark: bool, accent: Rgba) -> Palette {
-    if dark {
+/* Studio：默认外观，半透明面板叠在毛玻璃上。 */
+fn studio_palette(dark: bool, accent: Rgba) -> Palette {
+    let base = if dark {
         Palette {
             side: rgba_hex(0x202023, 0.66),
             input: rgba_hex(0x2c2c30, 0.85),
@@ -110,6 +149,18 @@ fn build_palette(dark: bool, accent: Rgba) -> Palette {
             badge_bg: rgba_hex(0x2d2d2f, 1.0),
             statusbar_bg: rgba_hex(0x18181b, 0.85),
             accent,
+            style: DesignStyle::Studio,
+            radius: 6.0,
+            radius_sm: 3.0,
+            pad: 12.0,
+            title_size: 15.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: false,
+            inset: false,
+            page: TRANSPARENT,
+            page2: TRANSPARENT,
         }
     } else {
         Palette {
@@ -135,7 +186,269 @@ fn build_palette(dark: bool, accent: Rgba) -> Palette {
             badge_bg: rgba_hex(0xeeeeef, 1.0),
             statusbar_bg: rgba_hex(0xfafafa, 0.85),
             accent,
+            style: DesignStyle::Studio,
+            radius: 6.0,
+            radius_sm: 3.0,
+            pad: 12.0,
+            title_size: 15.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: false,
+            inset: false,
+            page: TRANSPARENT,
+            page2: TRANSPARENT,
         }
+    };
+    base
+}
+
+/* 极简：近单色 + 一个强调色；大标题是全场最响的东西；留白优先。
+ * 边框只保留到"能看见分组"的最低限度，其余靠空间分隔。 */
+fn minimal_palette(dark: bool, accent: Rgba) -> Palette {
+    if dark {
+        Palette {
+            side: rgba_hex(0x101012, 0.72),
+            input: rgba_hex(0x161618, 1.0),
+            card: rgba_hex(0x151517, 1.0),
+            hover: rgba_hex(0x1e1e21, 1.0),
+            sel: with_alpha(accent, 0.20),
+            line: rgba_hex(0xffffff, 0.05),
+            fg: rgba_hex(0xe6e6e6, 1.0),
+            fg_bright: rgba_hex(0xfbfbfb, 1.0),
+            fg_dim: rgba_hex(0x9b9b9b, 1.0),
+            fg_faint: rgba_hex(0x717171, 1.0),
+            focus: accent,
+            link: rgba_hex(0x6ea8ff, 1.0),
+            green: rgba_hex(0x8fd6a0, 1.0),
+            amber: rgba_hex(0xd8b25c, 1.0),
+            row_border: rgba_hex(0xffffff, 0.04),
+            card_hover_border: rgba_hex(0xffffff, 0.12),
+            panel: rgba_hex(0xffffff, 0.02),
+            panel_border: rgba_hex(0xffffff, 0.04),
+            dot_off: rgba_hex(0x2a2a2c, 1.0),
+            badge_bg: rgba_hex(0x1c1c1f, 1.0),
+            statusbar_bg: rgba_hex(0x0c0c0d, 1.0),
+            accent,
+            style: DesignStyle::Minimal,
+            radius: 10.0,
+            radius_sm: 6.0,
+            pad: 20.0,
+            title_size: 30.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: false,
+            inset: false,
+            page: rgba_hex(0x0a0a0b, 1.0),
+            page2: TRANSPARENT,
+        }
+    } else {
+        Palette {
+            side: rgba_hex(0xffffff, 0.80),
+            input: rgba_hex(0xffffff, 1.0),
+            card: rgba_hex(0xffffff, 1.0),
+            hover: rgba_hex(0xf1f1ef, 1.0),
+            sel: with_alpha(accent, 0.14),
+            line: rgba_hex(0x000000, 0.07),
+            fg: rgba_hex(0x2f2f33, 1.0),
+            fg_bright: rgba_hex(0x101012, 1.0),
+            fg_dim: rgba_hex(0x6b6b70, 1.0),
+            fg_faint: rgba_hex(0x9a9a9f, 1.0),
+            focus: accent,
+            link: rgba_hex(0x1d5fd0, 1.0),
+            green: rgba_hex(0x2f7d3a, 1.0),
+            amber: rgba_hex(0x8f6a12, 1.0),
+            row_border: rgba_hex(0x000000, 0.06),
+            card_hover_border: rgba_hex(0x000000, 0.16),
+            panel: rgba_hex(0x000000, 0.02),
+            panel_border: rgba_hex(0x000000, 0.05),
+            dot_off: rgba_hex(0xe2e2df, 1.0),
+            badge_bg: rgba_hex(0xf4f4f2, 1.0),
+            statusbar_bg: rgba_hex(0xf7f7f5, 1.0),
+            accent,
+            style: DesignStyle::Minimal,
+            radius: 10.0,
+            radius_sm: 6.0,
+            pad: 20.0,
+            title_size: 30.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: false,
+            inset: false,
+            page: rgba_hex(0xfbfbfa, 1.0),
+            page2: TRANSPARENT,
+        }
+    }
+}
+
+/* 粗野：浏览器默认材料本身即设计。纸白/纯黑底、1px 实线、0 圆角、等宽标题、
+ * 暴露结构的横线；没有阴影渐变圆角，链接保留"可点"的蓝与下划线式强调。 */
+fn brutal_palette(dark: bool, accent: Rgba) -> Palette {
+    if dark {
+        Palette {
+            side: rgba_hex(0x000000, 1.0),
+            input: rgba_hex(0x000000, 1.0),
+            card: rgba_hex(0x000000, 1.0),
+            hover: rgba_hex(0x1c1c1c, 1.0),
+            sel: rgba_hex(0xffffff, 0.14),
+            line: rgba_hex(0xffffff, 1.0),
+            fg: rgba_hex(0xffffff, 1.0),
+            fg_bright: rgba_hex(0xffffff, 1.0),
+            fg_dim: rgba_hex(0xc8c8c8, 1.0),
+            fg_faint: rgba_hex(0x8f8f8f, 1.0),
+            focus: rgba_hex(0x0000ee, 1.0),
+            link: rgba_hex(0x8ab4ff, 1.0),
+            green: rgba_hex(0x9be89b, 1.0),
+            amber: rgba_hex(0xe8d26b, 1.0),
+            row_border: rgba_hex(0xffffff, 1.0),
+            card_hover_border: rgba_hex(0xffffff, 1.0),
+            panel: rgba_hex(0x000000, 0.0),
+            panel_border: rgba_hex(0xffffff, 1.0),
+            dot_off: rgba_hex(0x3a3a3a, 1.0),
+            badge_bg: rgba_hex(0x000000, 1.0),
+            statusbar_bg: rgba_hex(0x000000, 1.0),
+            accent,
+            style: DesignStyle::Brutal,
+            radius: 0.0,
+            radius_sm: 0.0,
+            pad: 10.0,
+            title_size: 16.0,
+            caps: true,
+            mono_head: true,
+            rules: true,
+            shadow: false,
+            inset: false,
+            page: rgba_hex(0x000000, 1.0),
+            page2: TRANSPARENT,
+        }
+    } else {
+        Palette {
+            side: rgba_hex(0xffffff, 1.0),
+            input: rgba_hex(0xffffff, 1.0),
+            card: rgba_hex(0xffffff, 1.0),
+            hover: rgba_hex(0xeeeeee, 1.0),
+            sel: rgba_hex(0x000000, 0.10),
+            line: rgba_hex(0x000000, 1.0),
+            fg: rgba_hex(0x000000, 1.0),
+            fg_bright: rgba_hex(0x000000, 1.0),
+            fg_dim: rgba_hex(0x333333, 1.0),
+            fg_faint: rgba_hex(0x666666, 1.0),
+            focus: rgba_hex(0x0000ee, 1.0),
+            link: rgba_hex(0x0000ee, 1.0),
+            green: rgba_hex(0x0a6f1a, 1.0),
+            amber: rgba_hex(0x6f5200, 1.0),
+            row_border: rgba_hex(0x000000, 1.0),
+            card_hover_border: rgba_hex(0x000000, 1.0),
+            panel: rgba_hex(0xffffff, 0.0),
+            panel_border: rgba_hex(0x000000, 1.0),
+            dot_off: rgba_hex(0xcccccc, 1.0),
+            badge_bg: rgba_hex(0xffffff, 1.0),
+            statusbar_bg: rgba_hex(0xffffff, 1.0),
+            accent,
+            style: DesignStyle::Brutal,
+            radius: 0.0,
+            radius_sm: 0.0,
+            pad: 10.0,
+            title_size: 16.0,
+            caps: true,
+            mono_head: true,
+            rules: true,
+            shadow: false,
+            inset: false,
+            page: rgba_hex(0xffffff, 1.0),
+            page2: TRANSPARENT,
+        }
+    }
+}
+
+/* 拟物：材质可命名（浅色是纸张与桌面，深色是石墨金属），统一自上而下的
+ * 光照——凸起元素有高光、凹陷字段用内阴影，圆角来自实体倒角。 */
+fn skeuo_palette(dark: bool, accent: Rgba) -> Palette {
+    if dark {
+        Palette {
+            side: rgba_hex(0x2b2e31, 1.0),
+            input: rgba_hex(0x222527, 1.0),
+            card: rgba_hex(0x33373b, 1.0),
+            hover: rgba_hex(0x3c4147, 1.0),
+            sel: with_alpha(accent, 0.30),
+            line: rgba_hex(0x141618, 1.0),
+            fg: rgba_hex(0xd6dade, 1.0),
+            fg_bright: rgba_hex(0xf1f4f7, 1.0),
+            fg_dim: rgba_hex(0x9aa1a8, 1.0),
+            fg_faint: rgba_hex(0x767d84, 1.0),
+            focus: accent,
+            link: rgba_hex(0x7fb3ff, 1.0),
+            green: rgba_hex(0x8fd39a, 1.0),
+            amber: rgba_hex(0xd8b968, 1.0),
+            row_border: rgba_hex(0x1a1c1e, 1.0),
+            card_hover_border: rgba_hex(0x535a61, 1.0),
+            panel: rgba_hex(0x222527, 1.0),
+            panel_border: rgba_hex(0x141618, 1.0),
+            dot_off: rgba_hex(0x444a50, 1.0),
+            badge_bg: rgba_hex(0x2a2e31, 1.0),
+            statusbar_bg: rgba_hex(0x232629, 1.0),
+            accent,
+            style: DesignStyle::Skeuo,
+            radius: 9.0,
+            radius_sm: 6.0,
+            pad: 14.0,
+            title_size: 15.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: true,
+            inset: true,
+            page: rgba_hex(0x262a2d, 1.0),
+            page2: rgba_hex(0x191b1d, 1.0),
+        }
+    } else {
+        Palette {
+            side: rgba_hex(0xefe7d6, 1.0),
+            input: rgba_hex(0xe9e0cc, 1.0),
+            card: rgba_hex(0xfdf8ec, 1.0),
+            hover: rgba_hex(0xf3ead7, 1.0),
+            sel: with_alpha(accent, 0.22),
+            line: rgba_hex(0xb9ab8c, 1.0),
+            fg: rgba_hex(0x3b3225, 1.0),
+            fg_bright: rgba_hex(0x231c11, 1.0),
+            fg_dim: rgba_hex(0x6d5f4b, 1.0),
+            fg_faint: rgba_hex(0x8d8069, 1.0),
+            focus: accent,
+            link: rgba_hex(0x1d4fa8, 1.0),
+            green: rgba_hex(0x3c6f2c, 1.0),
+            amber: rgba_hex(0x8a5c14, 1.0),
+            row_border: rgba_hex(0xd3c6a8, 1.0),
+            card_hover_border: rgba_hex(0xa89873, 1.0),
+            panel: rgba_hex(0xe9e0cc, 1.0),
+            panel_border: rgba_hex(0xc2b393, 1.0),
+            dot_off: rgba_hex(0xcabcd0, 1.0),
+            badge_bg: rgba_hex(0xe6dcc4, 1.0),
+            statusbar_bg: rgba_hex(0xd9ceb6, 1.0),
+            accent,
+            style: DesignStyle::Skeuo,
+            radius: 9.0,
+            radius_sm: 6.0,
+            pad: 14.0,
+            title_size: 15.0,
+            caps: false,
+            mono_head: false,
+            rules: false,
+            shadow: true,
+            inset: true,
+            page: rgba_hex(0xcbc1ac, 1.0),
+            page2: rgba_hex(0xb8ac94, 1.0),
+        }
+    }
+}
+
+fn build_palette(style: DesignStyle, dark: bool, accent: Rgba) -> Palette {
+    match style {
+        DesignStyle::Studio => studio_palette(dark, accent),
+        DesignStyle::Minimal => minimal_palette(dark, accent),
+        DesignStyle::Brutal => brutal_palette(dark, accent),
+        DesignStyle::Skeuo => skeuo_palette(dark, accent),
     }
 }
 
@@ -152,12 +465,25 @@ const ACCENTS: [(&str, Rgba); 4] = [
 struct ThemePref {
     dark: bool,
     accent: usize,
+    style: DesignStyle,
+}
+
+impl Default for ThemePref {
+    fn default() -> Self {
+        ThemePref {
+            dark: true,
+            accent: 0,
+            style: DesignStyle::Studio,
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ThemePrefJson {
     dark: bool,
     accent: usize,
+    #[serde(default)]
+    style: DesignStyle,
 }
 
 fn theme_path() -> Option<std::path::PathBuf> {
@@ -170,18 +496,18 @@ fn theme_path() -> Option<std::path::PathBuf> {
 }
 
 fn load_pref() -> ThemePref {
-    let default = ThemePref { dark: true, accent: 0 };
+    let default = ThemePref::default();
     let Some(path) = theme_path() else { return default };
     std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str::<ThemePrefJson>(&s).ok())
-        .map(|j| ThemePref { dark: j.dark, accent: j.accent })
+        .map(|j| ThemePref { dark: j.dark, accent: j.accent, style: j.style })
         .unwrap_or(default)
 }
 
 fn save_pref(pref: ThemePref) {
     if let Some(path) = theme_path() {
-        let json = ThemePrefJson { dark: pref.dark, accent: pref.accent };
+        let json = ThemePrefJson { dark: pref.dark, accent: pref.accent, style: pref.style };
         if let Ok(s) = serde_json::to_string(&json) {
             let _ = std::fs::write(path, s);
         }
@@ -191,7 +517,7 @@ fn save_pref(pref: ThemePref) {
 /* 应用主题：写全局调色板 + 同步 kit 主题与品牌色。 */
 fn apply_theme(pref: ThemePref, cx: &mut App) {
     let accent = ACCENTS[pref.accent % ACCENTS.len()].1;
-    cx.set_global(build_palette(pref.dark, accent));
+    cx.set_global(build_palette(pref.style, pref.dark, accent));
     Theme::change(
         if pref.dark { ThemeMode::Dark } else { ThemeMode::Light },
         None,
@@ -993,7 +1319,7 @@ impl AppState {
             .flex()
             .items_center()
             .gap(px(5.0))
-            .rounded(px(3.0))
+            .rounded(px(p.radius_sm))
             .text_size(px(11.5))
             .bg(if active { p.sel } else { TRANSPARENT })
             .text_color(if active { p.fg_bright } else { p.fg_dim })
@@ -1055,7 +1381,7 @@ impl AppState {
             .flex()
             .items_center()
             .gap(px(8.0))
-            .rounded(px(6.0))
+            .rounded(px(p.radius_sm))
             .bg(if active { p.sel } else { TRANSPARENT })
             .when(!active, |r| r.hover(|s| s.bg(p.hover)))
             .on_click(cx.listener(move |state, _e, _w, cx| on_click(state, cx)))
@@ -1105,22 +1431,40 @@ impl AppState {
             .flex()
             .flex_col()
             .gap_1p5()
-            .p(px(10.0))
-            .rounded(px(6.0))
+            .p(px(p.pad * 0.75))
+            .rounded(px(p.radius))
             .bg(p.panel)
             .border_1()
             .border_color(p.panel_border)
+            /* 拟物：凹陷字段 = 内阴影；极简/粗野：平的。 */
+            .when(p.inset, |d| {
+                d.shadow(vec![
+                    BoxShadow::new(px(0.0), px(1.0), rgba_hex(0x000000, 0.30).into())
+                        .blur_radius(px(3.0))
+                        .spread_radius(px(0.0))
+                        .inset(),
+                ])
+            })
             .child(self.section_label(label, cx))
             .child(content)
     }
 
     fn section_label(&self, text: &'static str, cx: &App) -> gpui::Div {
         let p = *pal(cx);
-        div()
-            .text_size(px(10.0))
-            .font_weight(FontWeight::BOLD)
-            .text_color(p.fg_faint)
-            .child(text)
+        let shown = if p.caps {
+            SharedString::from(text.to_uppercase())
+        } else {
+            SharedString::from(text)
+        };
+        let mut label = div()
+            .text_size(if p.caps { px(11.0) } else { px(10.0) })
+            .font_weight(if p.caps { FontWeight::BOLD } else { FontWeight::SEMIBOLD })
+            .text_color(if p.rules { p.fg } else { p.fg_faint })
+            .child(shown);
+        if p.mono_head {
+            label = label.font_family("Menlo");
+        }
+        label
     }
 
     fn meta_line(&self, label: &'static str, value: String, cx: &App) -> gpui::Div {
@@ -1518,11 +1862,19 @@ impl AppState {
             .flex()
             .flex_col()
             .gap_2()
-            .p(px(12.0))
-            .rounded(px(6.0))
+            .p(px(p.pad))
+            .rounded(px(p.radius))
             .border_1()
             .border_color(if selected { p.focus } else { p.line })
             .bg(if selected { p.sel } else { p.card })
+            /* 拟物的卡片是"凸起的纸片"，需要向下投影；其余风格是平的。 */
+            .when(p.shadow, |c| {
+                c.shadow(vec![
+                    BoxShadow::new(px(0.0), px(1.0), rgba_hex(0x000000, 0.45).into())
+                        .blur_radius(px(3.0))
+                        .spread_radius(px(0.0)),
+                ])
+            })
             .when(!selected, |c| {
                 c.hover(|s| s.bg(p.hover).border_color(p.card_hover_border))
             })
@@ -1730,17 +2082,37 @@ impl gpui::Render for AppState {
                 .flex()
                 .items_center()
                 .gap_3()
-                .h_full()
+                .h(px(if p.title_size > 24.0 { 52.0 } else { 38.0 }))
                 .pl(if cfg!(target_os = "macos") { px(60.0) } else { px(12.0) })
                 .pr(px(10.0))
-                .child(Icon::new(IconName::Star).with_size(px(16.0)).text_color(rgba_hex(0x4fc3f7, 1.0)))
-                .child(
+                /* 品牌标记随设计语言变化：极简只用文字、粗野用纯字符、
+                 * 其余保留图形星标。 */
+                .child({
+                    let (glyph, color) = match p.style {
+                        DesignStyle::Minimal => ("✦", p.fg_dim),
+                        DesignStyle::Brutal => ("*", p.fg_bright),
+                        _ => ("★", rgba_hex(0x4fc3f7, 1.0)),
+                    };
                     div()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_size(px(if p.title_size > 24.0 { 18.0 } else { 16.0 }))
+                        .text_color(color)
+                        .child(SharedString::from(glyph))
+                })
+                .child({
+                    let mut title = div()
+                        .text_size(px(p.title_size))
+                        .font_weight(if p.caps { FontWeight::BOLD } else { FontWeight::SEMIBOLD })
                         .text_color(p.fg_bright)
-                        .child("StarTide — 技能管理"),
-                )
+                        .child(if p.caps {
+                            SharedString::from("STAR TIDE · 技能管理")
+                        } else {
+                            SharedString::from("StarTide — 技能管理")
+                        });
+                    if p.mono_head {
+                        title = title.font_family("Menlo");
+                    }
+                    title
+                })
                 .child(div().flex_1())
                 .child(
                     div()
@@ -1766,6 +2138,25 @@ impl gpui::Render for AppState {
                                 save_pref(state.theme_pref);
                                 let name = ACCENTS[state.theme_pref.accent].0;
                                 state.set_message(MessageKind::Ok, format!("强调色：{}", name));
+                                cx.notify();
+                            },
+                        ))
+                        .child(self.icon_action(
+                            "t-style", gpui_kit::assets::IconName::Layers,
+                            "设计语言（Studio / 极简 / 粗野 / 拟物）", cx,
+                            |state, cx| {
+                                let mut idx = 0;
+                                for (i, (_, s)) in STYLES.iter().enumerate() {
+                                    if *s == state.theme_pref.style {
+                                        idx = i;
+                                    }
+                                }
+                                idx = (idx + 1) % STYLES.len();
+                                state.theme_pref.style = STYLES[idx].1;
+                                apply_theme(state.theme_pref, cx);
+                                save_pref(state.theme_pref);
+                                let tip = format!("设计语言：{}", STYLES[idx].0);
+                                state.set_message(MessageKind::Ok, &tip);
                                 cx.notify();
                             },
                         ))
@@ -1994,6 +2385,16 @@ impl gpui::Render for AppState {
                             "没有匹配的技能"
                         }),
                 )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(p.fg_faint)
+                        .child(if self.skills.is_empty() {
+                            "先运行 skillctl scan 与 import，或点右上角的扫描按钮"
+                        } else {
+                            "试试用更具体的技术词（引擎、库名、命令名）"
+                        }),
+                )
                 .into_any_element()
         } else if self.skill_view == SkillView::Cards {
             let mut cards = div().flex().flex_wrap().gap(px(10.0));
@@ -2081,6 +2482,7 @@ impl gpui::Render for AppState {
             .border_color(p.line)
             .text_color(p.fg_dim)
             .text_size(px(11.0))
+            .font_family(if p.mono_head { "Menlo" } else { ui_font() })
             .child(SharedString::from(format!(
                 "✦ skillctl · {} 技能 · {} agent · {}",
                 self.skills.len(),
@@ -2103,7 +2505,13 @@ impl gpui::Render for AppState {
             .flex()
             .flex_col()
             .size_full()
-            .bg(TRANSPARENT)
+            /* 一个渐变表达式覆盖两种情况：纯色就是首尾同色的渐变，
+             * 这样 .bg() 的分支类型一致。 */
+            .bg(linear_gradient(
+                180.0,
+                linear_color_stop(p.page, 0.0),
+                linear_color_stop(if p.page2.a > 0.0 { p.page2 } else { p.page }, 100.0),
+            ))
             .text_color(p.fg)
             .font_family(ui_font())
             .on_key_down(cx.listener(Self::on_root_key))

@@ -291,6 +291,22 @@ Windows 后端（`FindFirstFileW` / `CreateSymbolicLinkW` / `MoveFileExW`，
 目录链接失败时降级为 junction）是同一个接口的另一份实现，放进 `core/`
 即可参与构建。
 
+## 设计语言
+
+客户端有四套可切换的设计语言，共用同一份渲染代码，差别来自 `Palette` 的姿态 token
+（圆角、描边、内距、标题字号、等宽、全大写、横线、投影、内阴影、页面渐变）：
+
+| 风格 | 立场 |
+|---|---|
+| **Studio** | 默认：半透明面板叠在毛玻璃上，克制的中性色 + 品牌强调色 |
+| **极简 Minimal** | 元素最少、内距 20px、近单色 + 单一强调色、30px 超大标题；装饰为零 |
+| **粗野 Brutal** | 浏览器默认材料（等宽全大写、蓝链接）、1px 实线暴露结构、0 圆角零装饰、密度优先 |
+| **拟物 Skeuo** | 可命名材质（纸面/桌面/石墨金属）+ 统一自上而下光照（凸起投影、凹陷内阴影） |
+
+标题栏的 Layers 图标循环切换，选择写入 `gui-theme.json`；深/浅与强调色仍独立可调。
+三套新风格各自的约束、反漂移说明（极简≠flat design、粗野≠neobrutalism、拟物≠neumorphism）
+与控件命名姿态见 **[docs/THEMES.md](docs/THEMES.md)**。
+
 ## GUI
 
 `gui/` 下是一个 GPUI（Rust）壳：它不重新实现任何逻辑，只 spawn CLI 并解析
@@ -329,3 +345,10 @@ make app        # 在仓库根目录组装 StarTide.app，双击启动
 GUI 启动时按 `SKILLCTL_BIN` 环境变量 → 从可执行文件位置向上最多 8 级目录
 寻找 `build/skillctl`（Windows 为 `build-win/skillctl.exe`）的顺序定位
 CLI 引擎；找不到会提示先运行 `make` 构建，或用 `SKILLCTL_BIN` 指定路径。
+
+## 文档
+
+- [docs/CLI.md](docs/CLI.md) —— 命令、全局选项、环境变量、`--json` 形状、退出码、store 布局
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 模块职责、三条数据流、七条不变量、测试分层
+- [docs/THEMES.md](docs/THEMES.md) —— 四套设计语言的 token、约束与控件命名姿态
+- [docs/DESIGN.md](docs/DESIGN.md) —— 最初的引擎设计（扫描/store/链接的取舍与调研结论）
