@@ -276,7 +276,16 @@ static void test_fs_basics(void) {
     CHECK(sh_lstat(link, &info) == SH_FS_OK && info.is_link, "link should be a link");
     CHECK(sh_stat(link, &info) == SH_FS_OK && info.is_dir, "stat should follow the link");
     char *target = sh_readlink(link);
-    CHECK(target && strcmp(target, nested) == 0, "readlink should return the target");
+    CHECK(target != NULL, "readlink should return the target");
+    if (target) {
+        /* Windows reports the target in its own form (absolute, resolved),
+         * so compare where the two paths point, not the strings. */
+        char *a = sh_path_real(target);
+        char *b = sh_path_real(nested);
+        CHECK(a && b && strcmp(a, b) == 0, "readlink should point at the target");
+        free(a);
+        free(b);
+    }
     free(target);
 
     CHECK(sh_dir_size(tmp) >= 5, "dir size should count the file");

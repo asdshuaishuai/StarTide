@@ -252,7 +252,9 @@ char *sh_path_normalize(const char *p) {
     size_t dl = strlen(drive);
     memcpy(out, drive, dl);
     used += dl;
-    if (absolute && drive[2] == '/') out[used++] = '/';
+    /* A root-relative path ("/a/b") keeps its leading slash; a drive
+     * that already carries one ("C:/") does not get a second. */
+    if (absolute && !(dl == 3 && drive[2] == '/')) out[used++] = '/';
     for (size_t i = 0; i < count; i++) {
         size_t seg = strlen(parts[i]);
         if (i > 0) out[used++] = '/';
