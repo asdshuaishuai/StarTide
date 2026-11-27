@@ -112,7 +112,7 @@ a:hover { text-decoration: underline; }
   font-size: clamp(30px, 5.2vw, 52px);
   line-height: 1.14; letter-spacing: -0.022em;
   color: var(--fg-bright); font-weight: 680; margin: 0 0 20px;
-  max-width: 24ch; text-wrap: balance;
+  max-width: 26ch; text-wrap: balance;
 }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .lede {
