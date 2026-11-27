@@ -282,7 +282,19 @@ static void test_fs_basics(void) {
          * so compare where the two paths point, not the strings. */
         char *a = sh_path_real(target);
         char *b = sh_path_real(nested);
-        CHECK(a && b && strcmp(a, b) == 0, "readlink should point at the target");
+        int same = 0;
+        if (a && b) {
+            size_t la = strlen(a), lb = strlen(b);
+            while (la > 1 && a[la - 1] == '/') a[--la] = '\0';
+            while (lb > 1 && b[lb - 1] == '/') b[--lb] = '\0';
+            same = strcmp(a, b) == 0;
+#ifdef _WIN32
+            /* The drive letter may come back in either case. */
+            if (!same) same = _stricmp(a, b) == 0;
+#endif
+        }
+        CHECK(same, "readlink should point at the target (raw=%s target=%s nested=%s)",
+              target, a ? a : "(null)", b ? b : "(null)");
         free(a);
         free(b);
     }

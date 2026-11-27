@@ -11,7 +11,8 @@ name: build artifacts
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # v* is a formal version; alpha* is a pre-release build.
+    tags: ['v*', 'alpha*']
   workflow_dispatch:
     inputs:
       version:
@@ -233,7 +234,7 @@ jobs:
   # -------------------------------------------------------------- release
   release:
     name: publish the release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [cli, app]
     runs-on: ubuntu-latest
     permissions:
@@ -255,5 +256,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --verify-tag --generate-notes --title "StarTide ${GITHUB_REF_NAME}"
+          # A formal version is a normal release; an alpha tag is marked
+          # as a pre-release, because it carries no version number.
+          extra=""
+          title="StarTide ${GITHUB_REF_NAME}"
+          notes=""
+          case "${GITHUB_REF_NAME}" in
+            v*) ;;
+            alpha-*)
+              extra="--prerelease"
+              title="StarTide · alpha ${GITHUB_REF_NAME#alpha-}"
+              notes="Alpha test build. No version number yet - the binaries report their build tag."
+              ;;
+            *)
+              extra="--prerelease"
+              ;;
+          esac
+          if [ -n "${notes}" ]; then
+            gh release create "${GITHUB_REF_NAME}" dist/* \
+              --verify-tag ${extra} --notes "${notes}" --title "${title}"
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/* \
+              --verify-tag --generate-notes ${extra} --title "${title}"
+          fi
