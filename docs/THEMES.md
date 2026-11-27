@@ -1,3 +1,8 @@
+---
+layout: default
+title: 设计语言
+---
+
 # 设计语言
 
 客户端有四套设计语言，共用同一份渲染代码，差别来自 `Palette` 里的"姿态 token"

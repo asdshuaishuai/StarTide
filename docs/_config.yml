@@ -1,0 +1,28 @@
+# GitHub Pages configuration for the StarTide site.
+#
+# Source: main branch, /docs folder.
+# The site is a project page, so every internal link goes through
+# relative_url / site.url — moving to a custom domain later only means
+# changing `url` and `baseurl` here.
+title: StarTide
+description: 把散落在机器各处的 agent skill 收进一个仓库；需要哪一个，才取哪一个。C99 引擎 + CLI + macOS 桌面应用。
+url: https://asdshuaishuai.github.io
+baseurl: /StarTide
+
+# The site brings its own layout and stylesheet; no theme is needed.
+theme: null
+
+# /CLI instead of /CLI.html
+permalink: pretty
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+# The .md files in this folder are the source of the doc pages.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor

@@ -1,8 +1,13 @@
+---
+layout: default
+title: CLI 参考
+---
+
 # CLI 参考
 
 `skillctl` 是 StarTide 的引擎与命令行。GUI 不重写任何逻辑，它调用同一套 CLI。
 
-任务导向的手册见 [USAGE.md](USAGE.md)；这份文档只讲**命令、选项、输出形状**。
+任务导向的手册见 [USAGE.md](https://asdshuaishuai.github.io/StarTide/USAGE/)；这份文档只讲**命令、选项、输出形状**。
 
 ```
 skillctl <command> [options]

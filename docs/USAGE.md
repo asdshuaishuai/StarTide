@@ -1,7 +1,12 @@
+---
+layout: default
+title: 使用手册
+---
+
 # 使用手册
 
-这份文档讲**怎么用**。它假设你已经读过 [README](../README.md)（项目主页）和
-[CLI 参考](CLI.md)（命令与选项的完整列表）。
+这份文档讲**怎么用**。它假设你已经读过 [README](https://github.com/asdshuaishuai/StarTide#readme)（项目主页）和
+[CLI 参考](https://asdshuaishuai.github.io/StarTide/CLI/)（命令与选项的完整列表）。
 
 - [1. 安装](#1-安装)
 - [2. 第一次使用](#2-第一次使用)
@@ -28,7 +33,7 @@ install -m 755 build/skillctl /usr/local/bin/skillctl
 ```
 
 `make` 需要 `cc` 和 `make`。**引擎本身零外部依赖**——ONNX Runtime 与 llama.cpp
-都是可选的，缺了只影响向量路（见 [README](../README.md#可选依赖只影响向量路)）。
+都是可选的，缺了只影响向量路（见 [README](https://github.com/asdshuaishuai/StarTide#可选依赖只影响向量路)）。
 
 Windows：需要 MSVC 或 mingw-w64；源码用 `sh_fs_win32.c` 走 Win32 API。
 
@@ -455,7 +460,7 @@ make app && open StarTide.app
 ```
 
 `style` 缺省是 `Studio`（老配置文件没有这个字段时按默认处理）。每套风格的
-约束与反漂移说明见 [THEMES.md](THEMES.md)。
+约束与反漂移说明见 [THEMES.md](https://asdshuaishuai.github.io/StarTide/THEMES/)。
 
 ---
 
@@ -552,7 +557,7 @@ skillctl show godot-ui --json | jq -r '.body // .content // empty'
 | 1 | 运行失败（I/O、缺模型、catalog 为空） |
 | 2 | 用法错误，或 `show` 遇到同名歧义 |
 
-`--json` 的各命令输出形状见 [CLI.md](CLI.md#--json-输出形状)。
+`--json` 的各命令输出形状见 [CLI.md](https://asdshuaishuai.github.io/StarTide/CLI/#--json-输出形状)。
 
 ---
 

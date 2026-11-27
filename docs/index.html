@@ -1,0 +1,255 @@
+---
+layout: default
+title: StarTide
+---
+<div class="hero">
+  <div class="hero-in">
+    <p class="eyebrow">C99 引擎 · CLI · macOS 桌面应用</p>
+    <h1>把散落在机器各处的 agent skill 收进一个仓库；<em>需要哪一个，才取哪一个。</em></h1>
+    <p class="lede">
+      一台开发机上通常有好几个 AI agent，每个都有自己的 skills 目录，此外插件缓存、
+      项目内目录、第三方商店还散落着大量副本。把它们收敛成一个内容寻址的仓库，
+      让所有 agent 通过软链接访问同一份内容；再把「选哪个」交给检索——
+      意图进去，命中一个出来，只读那一个的正文。
+    </p>
+    <div class="cta">
+      <div class="code" style="flex:1 1 420px;">
+        <button class="copy" type="button" data-copy="#install-cmd">复制</button>
+        <pre><code id="install-cmd"><span class="prompt">$ </span><span class="cmd">make &amp;&amp; install -m 755 build/skillctl /usr/local/bin/skillctl</span></code></pre>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:14px;font-size:13.5px;">
+      引擎与 CLI 是纯 C99，源码层面零外部依赖。Windows / Linux 同样从源码构建；
+      桌面应用目前是 macOS（GPUI）。
+    </p>
+  </div>
+</div>
+
+<section>
+  <div class="sec-in">
+    <h2 class="sec">01 — 三件事</h2>
+    <h3 class="head">一个引擎，三个面向</h3>
+    <p class="sub">
+      C 引擎是唯一真相源，CLI 是它的全部对外接口，桌面应用只是调用 CLI 的壳——
+      不重写任何逻辑，所以两个前端永远看到同一份事实。
+    </p>
+    <div class="grid g3">
+      <div class="card">
+        <h4><span class="tag">core</span>统一</h4>
+        <p>
+          扫出 home 下所有 <code>SKILL.md</code>，按内容哈希去重后复制进 store，
+          各 agent 的 skills 根目录整体替换成指向 view 的软链。原目录永远
+          <code>rename</code> 进 trash，随时可回滚。
+        </p>
+      </div>
+      <div class="card">
+        <h4><span class="tag">skillctl</span>路由</h4>
+        <p>
+          <code>find</code> 把一句话的意图排成候选，<code>show</code> 按需取回那一个
+          <code>SKILL.md</code>。BM25F 正文索引 + 元数据启发式 + 可选稠密向量，
+          RRF 融合；全部在进程内，不跑 Python。
+        </p>
+      </div>
+      <div class="card">
+        <h4><span class="tag">app</span>桌面</h4>
+        <p>
+          三栏：agent 树、技能墙、详情 Inspector。spawn CLI、解析 <code>--json</code>。
+          四套可切换的设计语言，深浅与强调色独立可调。
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-in">
+    <h2 class="sec">02 — 仓库长什么样</h2>
+    <h3 class="head">一个 store，N 个视图</h3>
+    <p class="sub">
+      身份 = 目录树的内容哈希，所以导入天然幂等、去重天然成立；
+      agent 的加载器跟随软链接，于是对它们来说一切照旧。
+    </p>
+    <div class="grid g2">
+      <div class="code">
+        <pre><code>~/.skillctl/
+├── units/&lt;sha256 前 16 位&gt;/   真实内容，按内容去重
+├── views/&lt;agent&gt;/             每个 agent 一个目录，全是软链接
+├── trash/&lt;agent&gt;-&lt;时间&gt;/       被替换掉的原目录，随时可回滚
+├── index/                     BM25F 倒排索引 + 向量
+└── catalog.jsonl              已知 skill 的索引
+
+~/.zcode/skills  -&gt;  ../.skillctl/views/zcode
+~/.claude/skills -&gt;  ../.skillctl/views/claude</code></pre>
+      </div>
+      <div>
+        <div class="steps">
+          <div class="step">
+            <div>
+              <h4>扫描 · 只读</h4>
+              <p>找出磁盘上所有技能，不跟随软链（44% 的条目是软链，展开会拖进几百 MB）。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div>
+              <h4>入库 · 去重</h4>
+              <p>按内容哈希复制进 store。同一份内容出现在五个地方，只存一份。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div>
+              <h4>链接 · 可回滚</h4>
+              <p>原目录 <code>rename</code> 进 trash，根目录换成软链。<code>unlink</code> 原样移回。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div>
+              <h4>索引 · 可检索</h4>
+              <p>正文进倒排索引，<code>find</code> 才有得可查；索引过期也能用，刷新即可。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-in">
+    <h2 class="sec">03 — 路由</h2>
+    <h3 class="head">意图 → 命中 → 只读一个</h3>
+    <p class="sub">
+      把「所有 skill 的描述都塞进上下文」换成「提问 → 命中 → 只读一个」。
+      这台机器 766 个技能，已经越过 in-context 路由的拐点。
+    </p>
+    <div class="grid g2">
+      <div class="code">
+        <pre><code><span class="prompt">$ </span><span class="cmd">skillctl find "build a godot UI with shaders"</span>
+godot-ui [stored] — Use when building user interfaces — Control nodes, themes…
+godot-ui-designer [stored] — Design Godot UI layouts…
+
+<span class="prompt">$ </span><span class="cmd">skillctl show godot-ui</span>
+<span class="muted">…该 skill 的 SKILL.md 全文…</span></code></pre>
+      </div>
+      <div>
+        <p style="color:var(--fg-dim);font-size:14.5px;">
+          检索不是关键词匹配，而是一条按论文结论搭起来的流水线：
+        </p>
+        <ul style="color:var(--fg);font-size:14.5px;padding-left:20px;">
+          <li><strong>正文进索引</strong>——去掉正文，Hit@1 掉 29–44pp（SkillRouter）</li>
+          <li><strong>BM25F 五字段</strong>——name / description / profile / body / path</li>
+          <li><strong>确定性富化</strong>——profile 从正文抽取标题、触发语、围栏语言，不调用任何模型</li>
+          <li><strong>索引期去重</strong>——5-gram shingle Jaccard ≥ 0.8 的变体合并（+4.0pp）</li>
+          <li><strong>多路召回 + RRF</strong>——词面、元数据、稠密三路融合（ToolRet, Cormack 2009）</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 class="head" style="margin-top:46px;">80 条分层查询，实测</h3>
+    <p class="sub">
+      查询集分六层：精确名 / 中文意图 / 英文自然语言 / 中英混合 /
+      仅正文才有的信号 / 同名消歧。
+    </p>
+    <div class="metrics">
+      <div class="metric"><span class="n">0.912</span><span class="k">Hit@1</span></div>
+      <div class="metric"><span class="n">0.940</span><span class="k">MRR@10</span></div>
+      <div class="metric"><span class="n">0.963</span><span class="k">Recall@3</span></div>
+      <div class="metric"><span class="n">0.988</span><span class="k">Recall@10</span></div>
+      <div class="metric"><span class="n">0.952</span><span class="k">nDCG@10</span></div>
+    </div>
+    <p class="muted" style="margin-top:14px;font-size:13.5px;">
+      改造前（只按名字与描述的启发式）是 Hit@1 0.775 / MRR@10 0.792。
+      分水岭在「仅正文信号」那一层：查询信号只存在于 <code>SKILL.md</code> 正文里，
+      名字和描述一个词都没有——改造前是 <strong>0.000</strong>，现在是 <strong>0.833</strong>。
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-in">
+    <h2 class="sec">04 — 桌面应用</h2>
+    <h3 class="head">四套设计语言</h3>
+    <p class="sub">
+      共用同一份渲染代码，差别来自一组「姿态 token」：圆角、描边、内距、
+      标题字号、等宽、全大写、横线、投影、内阴影、页面渐变。
+    </p>
+    <div class="themes">
+      <div class="theme">
+        <div class="swatch"><i style="background:#202023"></i><i style="background:#2a2a2e"></i><i style="background:#2dd4bf"></i></div>
+        <h4>Studio</h4>
+        <p>默认外观：半透明面板叠在毛玻璃上，克制的中性色 + 一个品牌强调色。</p>
+        <span class="note">default</span>
+      </div>
+      <div class="theme min">
+        <div class="swatch"><i style="background:#fbfbfa"></i><i style="background:#ececea"></i><i style="background:#0d9488"></i></div>
+        <h4>极简 Minimal</h4>
+        <p>元素最少、内距 20px、近单色 + 单一强调色、一个 30px 超大标题，装饰为零。留白承担层次，而不是靠再塞内容。</p>
+        <span class="note">minimalism ≠ flat</span>
+      </div>
+      <div class="theme brut">
+        <div class="swatch"><i style="background:#ffffff"></i><i style="background:#000000"></i><i style="background:#0000ee"></i></div>
+        <h4>粗野 Brutal</h4>
+        <p>浏览器默认材料：等宽全大写、蓝链接、1px 实线暴露结构、0 圆角零装饰、密度优先。粗来自不做修饰，不是另加修饰。</p>
+        <span class="note">web brutalism ≠ neobrutalism</span>
+      </div>
+      <div class="theme skeuo">
+        <div class="swatch"><i style="background:#cbc1ac"></i><i style="background:#fdf8ec"></i><i style="background:#33373b"></i></div>
+        <h4>拟物 Skeuo</h4>
+        <p>可命名的材质：纸面、桌面、石墨金属。统一自上而下的光照——凸起投阴影，凹陷用内阴影，两种材质不只是配色不同。</p>
+        <span class="note">skeuomorphism ≠ neumorphism</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-in">
+    <h2 class="sec">05 — 文档</h2>
+    <h3 class="head">从哪开始</h3>
+    <p class="sub">
+      命令、输出形状与算法细节都有文档；每个结论都能追到论文或实测数字。
+    </p>
+    <div class="docs-index">
+      <a class="doc-link" href="{{ '/USAGE/' | relative_url }}">
+        <b>使用手册</b>
+        <span>安装、第一次使用、日常维护、路由工作流、排错表</span>
+      </a>
+      <a class="doc-link" href="{{ '/CLI/' | relative_url }}">
+        <b>CLI 参考</b>
+        <span>命令、全局选项、环境变量、JSON 输出形状、退出码</span>
+      </a>
+      <a class="doc-link" href="{{ '/ARCHITECTURE/' | relative_url }}">
+        <b>架构</b>
+        <span>模块职责、三条数据流、七条不变量、测试分层</span>
+      </a>
+      <a class="doc-link" href="{{ '/THEMES/' | relative_url }}">
+        <b>设计语言</b>
+        <span>四套风格的 token、约束、反漂移说明与控件命名姿态</span>
+      </a>
+      <a class="doc-link" href="{{ '/DESIGN/' | relative_url }}">
+        <b>设计（原始）</b>
+        <span>扫描可达性规则、内容寻址、软链投影与回滚的取舍与调研结论</span>
+      </a>
+      <a class="doc-link" href="https://github.com/asdshuaishuai/StarTide">
+        <b>GitHub 仓库</b>
+        <span>源码、Issue、CI（三平台编译 + 测试）</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+/* Copy buttons on code blocks: pure progressive enhancement, no dependency. */
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('.copy');
+  if (!btn) return;
+  var sel = btn.getAttribute('data-copy');
+  var src = sel ? document.querySelector(sel) : null;
+  if (!src) return;
+  var text = src.innerText.replace(/^\$\s*/, '');
+  navigator.clipboard.writeText(text).then(function () {
+    var old = btn.textContent;
+    btn.textContent = '已复制';
+    setTimeout(function () { btn.textContent = old; }, 1400);
+  });
+});
+</script>

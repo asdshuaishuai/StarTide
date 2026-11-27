@@ -11,6 +11,7 @@ StarTide 是一套跨平台的 skill 管理工具，由三部分组成：
 | **StarTide.app** | macOS 桌面应用（Rust / GPUI）。不重写任何逻辑，只调用 CLI | macOS |
 
 仓库地址：<https://github.com/asdshuaishuai/StarTide>
+官网：<https://asdshuaishuai.github.io/StarTide/>
 
 ---
 
@@ -366,6 +367,9 @@ Windows 后端（`FindFirstFileW` / `CreateSymbolicLinkW` / `MoveFileExW`，
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 模块职责、三条数据流、七条不变量、测试分层 |
 | [docs/THEMES.md](docs/THEMES.md) | 四套设计语言的 token、约束与控件命名姿态 |
 | [docs/DESIGN.md](docs/DESIGN.md) | 最初的引擎设计（扫描 / store / 链接的取舍与调研结论） |
+
+`docs/` 目录同时是 GitHub Pages 的站点源：`main` 分支的 `/docs` 直接发布成
+官网 <https://asdshuaishuai.github.io/StarTide/>，上面的文档同时是站点页面。
 
 ## 许可
 

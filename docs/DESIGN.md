@@ -1,3 +1,8 @@
+---
+layout: default
+title: 设计
+---
+
 # skillctl 设计
 
 ## 目标与约束

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title and page.title != site.title %}{{ page.title }} · {{ site.title }}{% else %}{{ site.title }}{% endif %}</title>
+<meta name="description" content="{{ page.description | default: site.description | strip_newlines | truncate: 160 }}">
+<meta property="og:title" content="{{ page.title | default: site.title }}">
+<meta property="og:description" content="{{ page.description | default: site.description | strip_newlines | truncate: 160 }}">
+<meta property="og:type" content="website">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0b0d'/%3E%3Cpath d='M16 6l2.6 7.1 7.4.7-5.6 4.9 1.6 7.3L16 22.2 10 26l1.6-7.3L6 13.8l7.4-.7z' fill='%232dd4bf'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="{{ '/' | relative_url }}">
+      <span class="mark" aria-hidden="true">✦</span>
+      <span>StarTide</span>
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="{{ '/' | relative_url }}">首页</a>
+      <a href="{{ '/USAGE/' | relative_url }}">使用手册</a>
+      <a href="{{ '/CLI/' | relative_url }}">CLI</a>
+      <a href="{{ '/ARCHITECTURE/' | relative_url }}">架构</a>
+      <a href="{{ '/THEMES/' | relative_url }}">设计语言</a>
+      <a href="{{ '/DESIGN/' | relative_url }}">设计</a>
+      <a class="gh" href="https://github.com/asdshuaishuai/StarTide" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+{{ content }}
+</main>
+
+<footer class="foot">
+  <div class="foot-in">
+    <p>StarTide · C99 引擎 + CLI + GPUI 桌面应用</p>
+    <p class="muted">
+      检索部分的取舍来自 SkillRouter、Enrich-Retrieve-Rank、ToolRet、
+      Lost in Implicit Routing 等公开论文，实现与实测见
+      <a href="{{ '/ARCHITECTURE/' | relative_url }}">架构文档</a>。
+    </p>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,3 +1,8 @@
+---
+layout: default
+title: 架构
+---
+
 # 架构
 
 ## 一句话
@@ -106,8 +111,8 @@ Lost in Implicit Routing 2610.18522、REALM 2026 2607.17598）。
 
 | 文档 | 讲什么 |
 |---|---|
-| [README.md](../README.md) | 项目主页：定位、安装、算法与依据、评测 |
-| [USAGE.md](USAGE.md) | 使用手册：上手步骤、日常维护、路由工作流、排错 |
-| [CLI.md](CLI.md) | 命令、选项、环境变量、`--json` 形状、退出码 |
-| [THEMES.md](THEMES.md) | 四套设计语言的 token、约束与控件命名姿态 |
-| [DESIGN.md](DESIGN.md) | 最初的引擎设计：扫描 / store / 链接的取舍与调研结论 |
+| [README.md](https://github.com/asdshuaishuai/StarTide#readme) | 项目主页：定位、安装、算法与依据、评测 |
+| [USAGE.md](https://asdshuaishuai.github.io/StarTide/USAGE/) | 使用手册：上手步骤、日常维护、路由工作流、排错 |
+| [CLI.md](https://asdshuaishuai.github.io/StarTide/CLI/) | 命令、选项、环境变量、`--json` 形状、退出码 |
+| [THEMES.md](https://asdshuaishuai.github.io/StarTide/THEMES/) | 四套设计语言的 token、约束与控件命名姿态 |
+| [DESIGN.md](https://asdshuaishuai.github.io/StarTide/DESIGN/) | 最初的引擎设计：扫描 / store / 链接的取舍与调研结论 |
