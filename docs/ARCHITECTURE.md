@@ -1,5 +1,6 @@
 ---
 layout: default
+wrap: doc
 title: 架构
 ---
 

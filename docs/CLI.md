@@ -1,5 +1,6 @@
 ---
 layout: default
+wrap: doc
 title: CLI 参考
 ---
 

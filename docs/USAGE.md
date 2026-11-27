@@ -1,5 +1,6 @@
 ---
 layout: default
+wrap: doc
 title: 使用手册
 ---
 
@@ -78,12 +79,12 @@ skillctl doctor
 ```
 
 ```
-Store          /Users/kelthas/.skillctl
+Store          /Users/you/.skillctl
 Symlinks       supported
 Agents         10 detected, 10 with an existing skills directory
 Vector path    gguf (model feae1d87cb9982fe)
 Vectors        766 x 320, match this model
-  ZCode            present  /Users/kelthas/.zcode/skills
+  ZCode            present  /Users/you/.zcode/skills
   ...
 Everything looks fine.
 ```
@@ -105,15 +106,15 @@ skillctl scan
 
 ```
 Scanning 1 root(s)...
-  /Users/kelthas
+  /Users/you
 
   3145 skill directories  (986 unique by content)
   416 skill roots, 338 symlinked aliases
   1465 read-only sources, 59746 directories visited
 
 Skill roots:
-  /Users/kelthas/.zcode/skills                                      134
-  /Users/kelthas/.claude/skills                                      79
+  /Users/you/.zcode/skills                                      134
+  /Users/you/.claude/skills                                      79
   ...
 Run 'skillctl catalog' for the full list, or 'skillctl link' to unify.
 ```
@@ -146,7 +147,7 @@ skillctl import
 Scanning for skills...
 
 Would import 538 skills (2607 already in the store, 0 skipped), 109.5 MB
-Store: /Users/kelthas/.skillctl
+Store: /Users/you/.skillctl
 ```
 
 导入按**内容哈希**去重：同一份内容出现在五个地方，只存一份。所以导入后的
@@ -164,8 +165,8 @@ skillctl link --dry-run --json | head -c 400
 
 ```json
 {"command":"link","dry_run":true,"imported":538,"skills":986,
- "agents":[{"id":"zcode","root":"/Users/kelthas/.zcode/skills",
-            "view":"/Users/kelthas/.skillctl/views/zcode",
+ "agents":[{"id":"zcode","root":"/Users/you/.zcode/skills",
+            "view":"/Users/you/.skillctl/views/zcode",
             "action":"linked","links":15,"backup":""}]}
 ```
 
@@ -202,11 +203,11 @@ skillctl status
 ```
 
 ```
-Store   /Users/kelthas/.skillctl
+Store   /Users/you/.skillctl
   766 units, 988.6 MB, catalog holds 986 entries (766 stored)
 
 Agents
-  ZCode            directory /Users/kelthas/.zcode/skills                          401 links
+  ZCode            directory /Users/you/.zcode/skills                          401 links
   ...
 ```
 
@@ -224,8 +225,8 @@ skillctl unlink
 ```
 
 ```
-  zcode        would restore /Users/kelthas/.zcode/skills
-  claude       would restore /Users/kelthas/.claude/skills
+  zcode        would restore /Users/you/.zcode/skills
+  claude       would restore /Users/you/.claude/skills
 ```
 
 原目录从 trash 原样移回，软链与 view 删掉。**这一步是原子的**——中途失败
@@ -285,7 +286,7 @@ skillctl find --json --limit 5 "deploy macos app"
 
 ```json
 [{"name":"app-store-changelog","description":"…","id":"…","stored":true,
-  "path":"/Users/kelthas/.zcode/skills/app-store-changelog","variants":1}]
+  "path":"/Users/you/.zcode/skills/app-store-changelog","variants":1}]
 ```
 
 然后按需取回：
@@ -404,7 +405,7 @@ agent 都能看到）；没有这个 agent 根时退回到配置里的第一个 
 会打印完整路径：
 
 ```
-installed router skill: /Users/kelthas/.agents/skills/skill-router/SKILL.md
+installed router skill: /Users/you/.agents/skills/skill-router/SKILL.md
 ```
 
 ---

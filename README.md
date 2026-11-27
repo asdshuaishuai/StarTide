@@ -371,6 +371,17 @@ Windows 后端（`FindFirstFileW` / `CreateSymbolicLinkW` / `MoveFileExW`，
 `docs/` 目录同时是 GitHub Pages 的站点源：`main` 分支的 `/docs` 直接发布成
 官网 <https://asdshuaishuai.github.io/StarTide/>，上面的文档同时是站点页面。
 
+> **发布官网**：GitHub Pages 免费版不支持私有仓库，所以要先让仓库可见，
+> 再打开 Pages：
+>
+> ```bash
+> gh repo edit asdshuaishuai/StarTide --visibility public
+> gh api --method POST repos/asdshuaishuai/StarTide/pages \
+>   --input - <<< '{"source":{"branch":"main","path":"/docs"}}'
+> ```
+>
+> 之后每次 push 都会自动重新构建站点。
+
 ## 许可
 
 源码见仓库。第三方资产各自遵循其许可：模型遵循发布页（CC-BY / Apache-2.0

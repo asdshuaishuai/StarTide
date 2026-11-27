@@ -9,8 +9,11 @@ description: 把散落在机器各处的 agent skill 收进一个仓库；需要
 url: https://asdshuaishuai.github.io
 baseurl: /StarTide
 
-# The site brings its own layout and stylesheet; no theme is needed.
-theme: null
+# The site brings its own layout and stylesheet, so no theme is named here:
+# Pages then applies its default theme, but docs/_layouts/default.html
+# replaces that theme's layout entirely and the output is fully ours.
+# (Do not add a .nojekyll file - it would switch Jekyll off and the
+# markdown files would stop being rendered as pages.)
 
 # /CLI instead of /CLI.html
 permalink: pretty

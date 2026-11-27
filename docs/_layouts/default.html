@@ -34,7 +34,9 @@
 </header>
 
 <main id="main">
+{% if page.wrap %}<article class="{{ page.wrap }}">{% endif %}
 {{ content }}
+{% if page.wrap %}</article>{% endif %}
 </main>
 
 <footer class="foot">
