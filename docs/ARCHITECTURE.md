@@ -89,8 +89,8 @@ show <name|id> ──► store units/<id>/SKILL.md（或回退到首个 source�
 
 | 层 | 位置 | 覆盖 |
 |---|---|---|
-| 单元 | `tests/test_core.c` | 路径、YAML（block scalar/引号/CRLF）、SHA-256 向量、JSON、扫描权限、树哈希稳定性、路由排序与同名歧义、分词/去重/profile、BM25F 手算值、向量文件往返与 v1 兼容、WordPiece |
-| 端到端 | `tests/e2e.sh` | 在临时 home/store 里跑完整流程：扫描→导入→链接→回滚→GC→同步，**以及降级契约**（无模型/无向量时各模式的行为） |
+| 单元 | `tests/test_core.c`（130 项） | 路径、YAML（block scalar/引号/CRLF）、SHA-256 向量、JSON、扫描权限、树哈希稳定性、路由排序与同名歧义、分词/去重/profile、BM25F 手算值、向量文件往返与 v1 兼容、WordPiece |
+| 端到端 | `tests/e2e.sh`（44 项） | 在临时 home/store 里跑完整流程：扫描→导入→链接→回滚→GC→同步，**以及降级契约**（无模型/无向量时各模式的行为） |
 | 指标 | `tests/router_eval.sh` | 80 条分层查询：Hit@1 / MRR@10 / Recall@3 / @10 / nDCG@10；`ROUTER_MODE` 可切模式对照 |
 | 内存 | `make asan-smoke` | ASAN+UBSAN 下的 doctor/status 冒烟；手工跑过 embed/find |
 
@@ -101,3 +101,13 @@ show <name|id> ──► store units/<id>/SKILL.md（或回退到首个 source�
 检索部分的取舍都来自论文而不是直觉，逐条对应关系见 README「算法与依据」表
 （SkillRouter 2603.22455、Enrich-Retrieve-Rank 2608.22695、ToolRet ACL 2025、
 Lost in Implicit Routing 2610.18522、REALM 2026 2607.17598）。
+
+## 相关文档
+
+| 文档 | 讲什么 |
+|---|---|
+| [README.md](../README.md) | 项目主页：定位、安装、算法与依据、评测 |
+| [USAGE.md](USAGE.md) | 使用手册：上手步骤、日常维护、路由工作流、排错 |
+| [CLI.md](CLI.md) | 命令、选项、环境变量、`--json` 形状、退出码 |
+| [THEMES.md](THEMES.md) | 四套设计语言的 token、约束与控件命名姿态 |
+| [DESIGN.md](DESIGN.md) | 最初的引擎设计：扫描 / store / 链接的取舍与调研结论 |

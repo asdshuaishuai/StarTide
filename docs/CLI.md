@@ -2,6 +2,8 @@
 
 `skillctl` 是 StarTide 的引擎与命令行。GUI 不重写任何逻辑，它调用同一套 CLI。
 
+任务导向的手册见 [USAGE.md](USAGE.md)；这份文档只讲**命令、选项、输出形状**。
+
 ```
 skillctl <command> [options]
 ```
@@ -60,9 +62,9 @@ skillctl <command> [options]
 
 | 命令 | 说明 | 关键选项 | 退出码 |
 |---|---|---|---|
-| `find` | 按意图排序技能（BM25F 正文 + 元数据启发式 + 可选稠密，RRF 融合） | `--mode auto\|bm25\|vector\|hybrid`、`--explain`、`--rerank`、`--limit`、`--json` | 0；`--mode vector` 无向量时 1 |
-| `show` | 取回某个技能的 `SKILL.md`（按需加载） | `--meta`（只给元信息）、`--json` | 2 = 名字歧义；1 = 读不到文件 |
-| `router-skill` | 打印（或 `--install` 写入 agent 根）路由技能本身 | `--install` | 1 = 写不进去 |
+| `find`（别名 `route`） | 按意图排序技能（BM25F 正文 + 元数据启发式 + 可选稠密，RRF 融合）。默认输出前 8 条 | `--mode auto\|bm25\|vector\|hybrid`、`--explain`、`--rerank`、`--limit`、`--json` | 0；`--mode vector` 无向量时 1 |
+| `show`（别名 `open`） | 取回某个技能的 `SKILL.md`（按需加载）。接受名字、唯一前缀或 unit id | `--meta`（只给元信息）、`--json` | 2 = 名字歧义；1 = 读不到文件 |
+| `router-skill` | 打印（或 `--install` 写入 `~/.agents/skills/skill-router/`）路由技能本身 | `--install` | 1 = 写不进去 |
 
 ## `--json` 输出形状
 
@@ -70,11 +72,17 @@ skillctl <command> [options]
 
 ```json
 [{"name":"godot-ui","description":"…","id":"<sha256>","stored":true,
-  "path":"/Users/…/godot-ui","variants":1,
-  "rrf":0.03,"bm25_rank":1,"meta_rank":2,"vec_rank":0,"name_rank":0,"rerank":0.0}]
+  "path":"/Users/…/godot-ui","variants":1}]
 ```
 
-`rrf`/`bm25_rank` 等字段仅在 `--explain` 时出现。
+`--explain` 时每条多出每一路的排名：
+
+```json
+[{"name":"godot-audio","…":"…","rrf":0.024397,"bm25_rank":54,
+  "meta_rank":4,"vec_rank":0,"name_rank":0,"rerank":0.0}]
+```
+
+`vec_rank` 恒为 0 表示稠密路没参与（默认 `auto` 模式，或没有向量）。
 
 **`show --meta --json`**：
 
@@ -87,6 +95,12 @@ skillctl <command> [options]
 ```json
 {"ok":true,"docs":714,"terms":56708,"postings":300393,"merged":52,
  "seconds":0.46,"catalog":766}
+```
+
+`--if-stale` 且索引已是最新时：
+
+```json
+{"up_to_date":true,"docs":0}
 ```
 
 **`embed --json`**：
