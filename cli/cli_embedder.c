@@ -3,7 +3,6 @@
  */
 #include "cli_embedder.h"
 
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,18 +29,21 @@ static char *resolve_onnx_file(const char *dir) {
 
 /* First *.gguf in a directory. */
 static char *first_gguf_in(const char *dir) {
-    DIR *d;
-    struct dirent *ent;
+    sh_dir *d;
+    sh_dirent ent;
     char *found = NULL;
 
-    d = opendir(dir);
+    /* sh_dir is the portable listing (dirent on POSIX, FindFirstFile on
+     * Windows), so this file stays free of platform headers. */
+    d = sh_dir_open(dir);
     if (!d) return NULL;
-    while (!found && (ent = readdir(d)) != NULL) {
-        size_t n = strlen(ent->d_name);
-        if (n > 5 && strcmp(ent->d_name + n - 5, ".gguf") == 0)
-            found = sh_path_join(dir, ent->d_name);
+    while (!found && sh_dir_next(d, &ent) == 1) {
+        const char *name = ent.name ? ent.name : "";
+        size_t n = strlen(name);
+        if (n > 5 && strcmp(name + n - 5, ".gguf") == 0)
+            found = sh_path_join(dir, name);
     }
-    closedir(d);
+    sh_dir_close(d);
     return found;
 }
 

@@ -86,16 +86,40 @@ make app && open StarTide.app          # 或 make install 直接装进 /Applicat
 
 ## 完整安装
 
+### 直接下载
+
+每次推送都会在 Actions 上构建产物；打 `v*` 标签会发布成 Release：
+
+| 产物 | 平台 | 说明 |
+|---|---|---|
+| `StarTide-<版本>-macos-arm64.zip` | macOS Apple Silicon | 桌面客户端，**包里带引擎** |
+| `StarTide-<版本>-macos-x86_64.zip` | macOS Intel | 桌面客户端，**包里带引擎** |
+| `skillctl-<版本>-macos-arm64.tar.gz` | macOS Apple Silicon | 命令行 |
+| `skillctl-<版本>-macos-x86_64.tar.gz` | macOS Intel | 命令行 |
+| `skillctl-<版本>-linux-x86_64.tar.gz` | Linux x86_64 | 命令行 |
+| `skillctl-<版本>-linux-aarch64.tar.gz` | Linux ARM64 | 命令行 |
+| `skillctl-<版本>-windows-x86_64.zip` | Windows x86_64 | 命令行 |
+
+下载页：<https://github.com/asdshuaishuai/StarTide/releases>
+
+客户端目前只有 macOS 版——GUI 工具链（GPUI）还没有 Windows / Linux 后端。
+命令行三个平台都有。
+
+### 从源码构建
+
 ```
 make            # 引擎：产物在 build/skillctl
 make test       # 核心单元测试（130 项）
 ./tests/e2e.sh  # 端到端测试（44 项，在临时目录里跑完整流程）
 make asan       # AddressSanitizer 构建 build/skillctl_asan
 make gui        # 编译 GUI（Rust / gpui-kit，产物 gui/target/release/startide）
-make app        # 在仓库根目录组装 StarTide.app
+make app        # 在仓库根目录组装 StarTide.app（引擎随包）
 make install    # 装进 /Applications 并把 CLI 放上 PATH
 make cross-win  # 交叉编译 Windows 引擎（需要 mingw-w64）
 ```
+
+版本号在构建时打进去：`make VERSION=0.2.0`，或
+`cmake -B build -DSKILLCTL_VERSION=0.2.0`。
 
 **引擎与 CLI 是纯 C99，源码层面零外部依赖。** Linux / macOS 直接 `make` 即可；
 Windows 需要 `sh_fs_win32.c`（见「跨平台」一节）。

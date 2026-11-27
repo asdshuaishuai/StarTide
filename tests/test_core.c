@@ -318,10 +318,52 @@ static void test_tree_hash_stability(void) {
 }
 
 
+
 #ifndef _WIN32
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
+#ifdef _WIN32
+#include <direct.h>
+#include <windows.h>
+#endif
+
+/* ------------------------------------------------------------ temp dirs
+ *
+ * POSIX has mkdtemp; Windows does not. The helper takes a buffer with a
+ * XXXXXX template, replaces it with a unique directory name and creates
+ * it. The same name is handed back so the caller can clean it up. */
+
+
+#ifdef _WIN32
+static int test_counter = 0;
+#endif
+
+static int make_temp_dir(char *tmpl, size_t cap) {
+#ifdef _WIN32
+    char tmp[MAX_PATH];
+    DWORD n = GetTempPathA(sizeof(tmp), tmp);
+    if (!n) return 0;
+    _snprintf(tmpl, (size_t)cap, "%sskillctl-test-%lu-%d", tmp,
+              (unsigned long)GetCurrentProcessId(), test_counter++);
+    return sh_mkdir_p(tmpl) == SH_FS_OK;
+#else
+    (void)cap;
+    return mkdtemp(tmpl) != NULL;
+#endif
+}
+
+static void remove_temp_dir(const char *path) {
+#ifdef _WIN32
+    _rmdir(path);
+#else
+    rmdir(path);
+#endif
+}
+
+
+#ifndef _WIN32
 /* A directory the user cannot read must be skipped, never forced. */
 static void test_scan_skips_denied_dirs(void) {
     if (geteuid() == 0) return; /* root ignores file modes; test is meaningless */
@@ -547,7 +589,7 @@ static void test_index_vectors(void) {
 
 
 static void test_wordpiece(void) {
-    char dir[] = "/tmp/skillctl-wp-XXXXXX";
+    char dir[512] = "/tmp/skillctl-wp-XXXXXX";
     char vocab[512];
     FILE *f;
     sh_wordpiece *wp;
@@ -556,8 +598,8 @@ static void test_wordpiece(void) {
     size_t n;
     long cls, sep, unk;
 
-    if (!mkdtemp(dir)) {
-        CHECK(0, "mkdtemp failed");
+    if (!make_temp_dir(dir, sizeof(dir))) {
+        CHECK(0, "cannot create a temporary directory");
         return;
     }
     snprintf(vocab, sizeof(vocab), "%s/vocab.txt", dir);
@@ -610,20 +652,20 @@ static void test_wordpiece(void) {
 
     sh_wp_free(wp);
     remove(vocab);
-    rmdir(dir);
+    remove_temp_dir(dir);
 }
 
 
 static void test_vectors_file(void) {
-    char dir[] = "/tmp/skillctl-vec-XXXXXX";
+    char dir[512] = "/tmp/skillctl-vec-XXXXXX";
     char path[512];
     char v1path[512];
     sh_vectors v;
     sh_vectors back;
     FILE *f;
 
-    if (!mkdtemp(dir)) {
-        CHECK(0, "mkdtemp failed");
+    if (!make_temp_dir(dir, sizeof(dir))) {
+        CHECK(0, "cannot create a temporary directory");
         return;
     }
     snprintf(path, sizeof(path), "%s/vectors.bin", dir);
@@ -638,7 +680,7 @@ static void test_vectors_file(void) {
     if (!v.ids || !v.vec) {
         free(v.ids);
         free(v.vec);
-        rmdir(dir);
+        remove_temp_dir(dir);
         return;
     }
     memcpy(v.ids, "unit-one", 8);
@@ -695,7 +737,7 @@ static void test_vectors_file(void) {
 
     remove(path);
     remove(v1path);
-    rmdir(dir);
+    remove_temp_dir(dir);
 }
 
 int main(void) {

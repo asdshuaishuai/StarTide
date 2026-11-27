@@ -24,7 +24,21 @@ title: 使用手册
 
 ## 1. 安装
 
-### 1.1 构建 CLI（必需）
+### 1.1 下载预编译产物（最快）
+
+每次推送都会在 Actions 上构建产物，打 `v*` 标签会发布成 Release：
+<https://github.com/asdshuaishuai/StarTide/releases>
+
+| 产物 | 平台 |
+|---|---|
+| `StarTide-<版本>-macos-arm64.zip` / `-macos-x86_64.zip` | 桌面客户端（**包里带引擎**，解压即用） |
+| `skillctl-<版本>-macos-{arm64,x86_64}.tar.gz` | macOS 命令行 |
+| `skillctl-<版本>-linux-{x86_64,aarch64}.tar.gz` | Linux 命令行 |
+| `skillctl-<版本>-windows-x86_64.zip` | Windows 命令行 |
+
+客户端只有 macOS 版：GUI 工具链（GPUI）还没有 Windows / Linux 后端。
+
+### 1.2 从源码构建 CLI
 
 ```bash
 git clone https://github.com/asdshuaishuai/StarTide.git
@@ -34,24 +48,27 @@ install -m 755 build/skillctl /usr/local/bin/skillctl
 ```
 
 `make` 需要 `cc` 和 `make`。**引擎本身零外部依赖**——ONNX Runtime 与 llama.cpp
-都是可选的，缺了只影响向量路（见 [README](https://github.com/asdshuaishuai/StarTide#可选依赖只影响向量路)）。
+都是可选的，缺了只影响向量路（见 [README](https://github.com/asdshuaishuai/StarTide#readme#可选依赖只影响向量路)）。
 
 Windows：需要 MSVC 或 mingw-w64；源码用 `sh_fs_win32.c` 走 Win32 API。
 
-### 1.2 构建桌面应用（可选，macOS）
+版本号在构建时打进去：`make VERSION=0.2.0`。
+
+### 1.3 构建桌面应用（可选，macOS）
 
 ```bash
-make app                   # 组装 ./StarTide.app
+make app                   # 组装 ./StarTide.app（引擎随包）
 open StarTide.app
 # 或者一步装好：
 make install               # → /Applications/StarTide.app + PATH 上的 skillctl
 ```
 
-桌面应用是 CLI 的壳：它 spawn `skillctl` 并解析 `--json`。**找不到 CLI 时它会
-明确提示**，并按 `SKILLCTL_BIN` → 从可执行文件位置向上最多 8 级目录找
-`build/skillctl` 的顺序定位。
+桌面应用是 CLI 的壳：它 spawn `skillctl` 并解析 `--json`。找引擎的顺序是
+**随包的 `Contents/MacOS/skillctl`** → `SKILLCTL_BIN` → 从可执行文件位置向上
+最多 8 级目录找 `build/skillctl`。所以下载来的 `.app` 解压即用，不依赖系统里
+有没有装 CLI；找不到引擎时它会明确提示。
 
-### 1.3 装一个向量模型（可选）
+### 1.4 装一个向量模型（可选）
 
 ```bash
 mkdir -p ~/.skillctl/models/f2llm-80m-gguf
