@@ -37,9 +37,9 @@
     --fg-bright: #17171b;
     --fg-dim: #5c5c66;
     --fg-faint: #8b8b95;
-    --accent: #0d9488;
-    --accent-soft: rgba(13, 148, 136, 0.10);
-    --accent-line: rgba(13, 148, 136, 0.34);
+    --accent: #0f766e;
+    --accent-soft: rgba(15, 118, 110, 0.10);
+    --accent-line: rgba(15, 118, 110, 0.36);
     --code-bg: #f4f4f1;
   }
 }
@@ -95,9 +95,15 @@ a:hover { text-decoration: underline; }
 .nav a.gh { color: var(--fg-faint); }
 
 @media (max-width: 720px) {
-  .top-in { gap: 10px; padding: 10px 16px; }
-  .nav { gap: 14px; }
-  .nav a { font-size: 12.5px; }
+  .top-in { gap: 14px; padding: 10px 16px; flex-wrap: nowrap; }
+  .brand { flex: none; }
+  .nav {
+    gap: 14px; flex-wrap: nowrap; overflow-x: auto;
+    scrollbar-width: none; -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { font-size: 12.5px; white-space: nowrap; }
 }
 
 /* ---------------------------------------------------------------- hero */
