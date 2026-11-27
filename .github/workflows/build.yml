@@ -200,11 +200,12 @@ jobs:
           path: StarTide-*.zip
           if-no-files-found: error
 
-  # The client toolkit has no Windows or Linux backend today. This job
-  # tries anyway: if upstream gains one, the artifacts appear without a
-  # change here. It never blocks the release.
+  # The client on the other two platforms. The GUI toolkit has a Linux
+  # and a Windows backend, but the app bundle is macOS shaped, so these
+  # are plain executables shipped next to the engine. The job never
+  # blocks the release: if a platform breaks, the release still goes out.
   app-ports:
-    name: client (${{ matrix.label }}) - experimental
+    name: client (${{ matrix.label }})
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -212,23 +213,64 @@ jobs:
         include:
           - label: linux-x86_64
             os: ubuntu-latest
+            ext: tar.gz
           - label: windows-x86_64
             os: windows-latest
+            ext: zip
 
     runs-on: ${{ matrix.os }}
+    env:
+      EXT: ${{ matrix.ext }}
+      LABEL: ${{ matrix.label }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: install the GUI system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev libx11-dev \
+            libxkbcommon-dev libwayland-dev libssl-dev libasound2-dev \
+            libudev-dev cmake
+
+      - name: build the engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release "-DSKILLCTL_VERSION=${VERSION}"
+          cmake --build build --config Release -j 4
+
       - name: build the client
         working-directory: gui
         run: cargo build --release
 
+      - name: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          mkdir -p dist
+          if [ -f build/Release/skillctl.exe ]; then BIN=build/Release/skillctl.exe; else BIN=build/skillctl; fi
+          if [ "${EXT}" = "zip" ]; then
+            cp gui/target/release/startide.exe dist/startide.exe
+            cp "${BIN}" dist/skillctl.exe
+            python -c "import zipfile;z=zipfile.ZipFile('dist/StarTide-${VERSION}-${LABEL}.zip','w',zipfile.ZIP_DEFLATED);z.write('dist/startide.exe','startide.exe');z.write('dist/skillctl.exe','skillctl.exe');z.close()"
+          else
+            cp gui/target/release/startide dist/startide
+            cp "${BIN}" dist/skillctl
+            tar -czf "dist/StarTide-${VERSION}-${LABEL}.tar.gz" -C dist startide skillctl
+          fi
+          ls -la dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: StarTide-${{ matrix.label }}
-          path: gui/target/release/startide
+          path: dist/*
           if-no-files-found: warn
 
   # -------------------------------------------------------------- release

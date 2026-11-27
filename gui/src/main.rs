@@ -845,7 +845,11 @@ fn find_cli() -> Option<PathBuf> {
         /* A packaged bundle carries the engine next to the shell, so a
          * downloaded app works on its own. */
         if let Some(dir) = exe.parent() {
-            for cand in [dir.join("skillctl"), dir.join("../Resources/skillctl")] {
+            for cand in [
+                dir.join("skillctl"),
+                dir.join("skillctl.exe"),
+                dir.join("../Resources/skillctl"),
+            ] {
                 if cand.exists() {
                     return Some(cand);
                 }

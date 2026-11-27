@@ -545,19 +545,22 @@ static char *read_reparse_target(const char *path) {
     const wchar_t *name = NULL;
     USHORT len = 0;
 
+    /* The name lengths in the reparse buffer are byte counts. Reading
+     * them as character counts copies twice the string and runs into
+     * the name that follows it in the buffer. */
     if (rd->ReparseTag == IO_REPARSE_TAG_SYMLINK) {
         const SYMLINK_REPARSE_DATA *sl = &rd->u.SymbolicLinkReparseBuffer;
         if (sl->PrintNameLength) {
             name = (const wchar_t *)((const BYTE *)sl->PathBuffer + sl->PrintNameOffset);
-            len = sl->PrintNameLength;
+            len = sl->PrintNameLength / sizeof(WCHAR);
         } else {
             name = (const wchar_t *)((const BYTE *)sl->PathBuffer + sl->SubstituteNameOffset);
-            len = sl->SubstituteNameLength;
+            len = sl->SubstituteNameLength / sizeof(WCHAR);
         }
     } else if (rd->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT) {
         const MOUNTPOINT_REPARSE_DATA *mp = &rd->u.MountPointReparseBuffer;
         name = (const wchar_t *)((const BYTE *)mp->PathBuffer + mp->SubstituteNameOffset);
-        len = mp->SubstituteNameLength;
+        len = mp->SubstituteNameLength / sizeof(WCHAR);
     }
     if (!name || len == 0) return NULL;
 
