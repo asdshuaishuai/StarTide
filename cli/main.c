@@ -7,7 +7,11 @@
 
 #include "cli.h"
 
+/* The release build stamps the version in; a local build keeps the
+ * number in the source. */
+#ifndef SKILLCTL_VERSION
 #define SKILLCTL_VERSION "0.1.0"
+#endif
 
 static void print_help(void) {
     printf(

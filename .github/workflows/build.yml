@@ -1,0 +1,258 @@
+name: build artifacts
+
+# Two products, built from one source tree:
+#   - skillctl  : the C99 engine + CLI, for macOS / Linux / Windows
+#   - StarTide  : the desktop client (macOS; the GUI toolkit has no
+#                 Windows or Linux backend yet)
+#
+# Every push to main produces downloadable artifacts. A tag (v*) also
+# publishes a GitHub Release with everything attached.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version stamped into the binaries (default: dev)'
+        required: false
+        default: 'dev'
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version || (github.ref_type == 'tag' && github.ref_name) || 'dev' }}
+
+jobs:
+  # ------------------------------------------------------------------ CLI
+  cli:
+    name: cli (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            os: macos-latest
+            arch: arm64
+            osx_arch: arm64
+            ext: tar.gz
+          - label: macos-x86_64
+            os: macos-latest
+            arch: x86_64
+            osx_arch: x86_64
+            ext: tar.gz
+          - label: linux-x86_64
+            os: ubuntu-latest
+            arch: x86_64
+            ext: tar.gz
+          - label: linux-aarch64
+            os: ubuntu-latest
+            arch: aarch64
+            cross: aarch64-linux-gnu
+            ext: tar.gz
+          - label: windows-x86_64
+            os: windows-latest
+            arch: x86_64
+            ext: zip
+
+    runs-on: ${{ matrix.os }}
+    env:
+      ARCH: ${{ matrix.arch }}
+      CROSS: ${{ matrix.cross }}
+      OSX_ARCH: ${{ matrix.osx_arch }}
+      EXT: ${{ matrix.ext }}
+      LABEL: ${{ matrix.label }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install the aarch64 cross toolchain
+        if: matrix.cross != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          args=(-B build -DCMAKE_BUILD_TYPE=Release "-DSKILLCTL_VERSION=${VERSION}")
+          if [ -n "${CROSS}" ]; then
+            args+=(-DCMAKE_SYSTEM_NAME=Linux
+                   -DCMAKE_SYSTEM_PROCESSOR="${ARCH}"
+                   -DCMAKE_C_COMPILER="${CROSS}-gcc")
+          fi
+          if [ -n "${OSX_ARCH}" ]; then
+            args+=(-DCMAKE_OSX_ARCHITECTURES="${OSX_ARCH}")
+          fi
+          cmake "${args[@]}"
+
+      - name: build
+        shell: bash
+        run: cmake --build build --config Release -j 4
+
+      - name: unit tests
+        if: matrix.cross == ''
+        shell: bash
+        run: |
+          if [ -f build/Release/test_core.exe ]; then ./build/Release/test_core.exe; else ./build/test_core; fi
+
+      - name: end-to-end tests
+        if: matrix.cross == ''
+        shell: bash
+        env:
+          SKILLCTL_BIN: ${{ runner.os == 'Windows' && 'build/Release/skillctl.exe' || 'build/skillctl' }}
+        run: bash tests/e2e.sh
+
+      - name: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          if [ -f build/Release/skillctl.exe ]; then BIN=build/Release/skillctl.exe; else BIN=build/skillctl; fi
+          "$BIN" --version
+          mkdir -p dist
+          if [ "${EXT}" = "zip" ]; then
+            python -c "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); z.write(sys.argv[2],'skillctl.exe'); z.close()" \
+              "dist/skillctl-${VERSION}-${LABEL}.zip" "${BIN}"
+          else
+            cp "${BIN}" dist/skillctl
+            tar -czf "dist/skillctl-${VERSION}-${LABEL}.tar.gz" -C dist skillctl
+            rm dist/skillctl
+          fi
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skillctl-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  # --------------------------------------------------------------- client
+  app:
+    name: client (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            os: macos-latest
+            rust_target: aarch64-apple-darwin
+            osx_arch: arm64
+          - label: macos-x86_64
+            os: macos-latest
+            rust_target: x86_64-apple-darwin
+            osx_arch: x86_64
+
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_TARGET: ${{ matrix.rust_target }}
+      OSX_ARCH: ${{ matrix.osx_arch }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: build the engine for this architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="${OSX_ARCH}" "-DSKILLCTL_VERSION=${VERSION}"
+          cmake --build build -j 4
+
+      - name: build the client
+        working-directory: gui
+        run: cargo build --release --target "${RUST_TARGET}"
+
+      - name: assemble the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          APP=StarTide.app
+          rm -rf "${APP}"
+          mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
+          cp "gui/target/${RUST_TARGET}/release/startide" "${APP}/Contents/MacOS/startide"
+          # The engine ships inside the bundle, so the app finds its CLI.
+          cp build/skillctl "${APP}/Contents/MacOS/skillctl"
+          cp gui/resources/Info.plist "${APP}/Contents/Info.plist"
+          cp gui/resources/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "${APP}/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "${APP}/Contents/Info.plist"
+          # Ad-hoc signature: enough for the app to run on another Mac.
+          codesign --force --deep --sign - "${APP}"
+          ditto -c -k --keepParent "${APP}" "StarTide-${VERSION}-${{ matrix.label }}.zip"
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarTide-${{ matrix.label }}
+          path: StarTide-*.zip
+          if-no-files-found: error
+
+  # The client toolkit has no Windows or Linux backend today. This job
+  # tries anyway: if upstream gains one, the artifacts appear without a
+  # change here. It never blocks the release.
+  app-ports:
+    name: client (${{ matrix.label }}) - experimental
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+          - label: windows-x86_64
+            os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: build the client
+        working-directory: gui
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StarTide-${{ matrix.label }}
+          path: gui/target/release/startide
+          if-no-files-found: warn
+
+  # -------------------------------------------------------------- release
+  release:
+    name: publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [cli, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --verify-tag --generate-notes --title "StarTide ${GITHUB_REF_NAME}"

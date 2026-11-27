@@ -842,6 +842,16 @@ fn find_cli() -> Option<PathBuf> {
         }
     }
     if let Ok(exe) = std::env::current_exe() {
+        /* A packaged bundle carries the engine next to the shell, so a
+         * downloaded app works on its own. */
+        if let Some(dir) = exe.parent() {
+            for cand in [dir.join("skillctl"), dir.join("../Resources/skillctl")] {
+                if cand.exists() {
+                    return Some(cand);
+                }
+            }
+        }
+
         let mut dir = exe.parent().map(|p| p.to_path_buf());
         for _ in 0..8 {
             match dir {

@@ -1,5 +1,8 @@
 CC      ?= cc
+# VERSION is stamped into the binary: make VERSION=0.2.0
+VERSION ?= 0.1.0
 CFLAGS  ?= -std=c99 -O2 -g -Wall -Wextra -Wno-unused-parameter
+CFLAGS  += -DSKILLCTL_VERSION=\"$(VERSION)\"
 CPPFLAGS+= -Icore -Icli -MMD -MP
 LDFLAGS ?=
 
@@ -97,14 +100,16 @@ cross-win:
 	@echo "built build-win/skillctl.exe"
 
 # Build the StarTide desktop app (gpui-kit shell over the C engine).
-# Assembles the bundle in the repo root: StarTide.app.
-app:
+# Assembles the bundle in the repo root: StarTide.app. The engine binary
+# ships inside the bundle, so a downloaded app finds its CLI on its own.
+app: gui $(BIN)
 	cd gui && cargo build --release
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@cp gui/target/release/startide $(APP)/Contents/MacOS/startide
+	@cp $(BIN) $(APP)/Contents/MacOS/skillctl
 	@cp gui/resources/Info.plist $(APP)/Contents/Info.plist
 	@cp gui/resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
-	@echo "built ./$(APP): Contents/MacOS/startide, Contents/Info.plist, Contents/Resources/AppIcon.icns"
+	@echo "built ./$(APP): Contents/MacOS/{startide,skillctl}, Contents/Info.plist, Contents/Resources/AppIcon.icns"
 
 # Install locally: the bundle to /Applications, the CLI engine onto PATH.
 # BIN_DIR is auto-detected (first user-writable dir in PATH); override with
