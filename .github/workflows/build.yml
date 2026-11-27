@@ -283,6 +283,9 @@ jobs:
       contents: write
 
     steps:
+      # gh release create resolves the repository from the checkout.
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
