@@ -88,22 +88,27 @@ make app && open StarTide.app          # 或 make install 直接装进 /Applicat
 
 ### 直接下载
 
-每次推送都会在 Actions 上构建产物；打 `v*` 标签会发布成 Release：
+每次推送都会在 Actions 上构建产物；打标签会发布成 Release。当前是**阿尔法测试版，
+没有正式版本号**：
+
+**→ [StarTide · alpha 2026-11-28](https://github.com/asdshuaishuai/StarTide/releases/tag/alpha-2026-11-28)（预发布）**
 
 | 产物 | 平台 | 说明 |
 |---|---|---|
-| `StarTide-<版本>-macos-arm64.zip` | macOS Apple Silicon | 桌面客户端，**包里带引擎** |
-| `StarTide-<版本>-macos-x86_64.zip` | macOS Intel | 桌面客户端，**包里带引擎** |
-| `skillctl-<版本>-macos-arm64.tar.gz` | macOS Apple Silicon | 命令行 |
-| `skillctl-<版本>-macos-x86_64.tar.gz` | macOS Intel | 命令行 |
-| `skillctl-<版本>-linux-x86_64.tar.gz` | Linux x86_64 | 命令行 |
-| `skillctl-<版本>-linux-aarch64.tar.gz` | Linux ARM64 | 命令行 |
-| `skillctl-<版本>-windows-x86_64.zip` | Windows x86_64 | 命令行 |
+| `StarTide-alpha-*-macos-arm64.zip` | macOS Apple Silicon | 桌面客户端，**包里带引擎** |
+| `StarTide-alpha-*-macos-x86_64.zip` | macOS Intel | 桌面客户端，**包里带引擎** |
+| `StarTide-alpha-*-windows-x86_64.zip` | Windows x86_64 | 桌面客户端 + 引擎 |
+| `skillctl-alpha-*-macos-arm64.tar.gz` | macOS Apple Silicon | 命令行 |
+| `skillctl-alpha-*-macos-x86_64.tar.gz` | macOS Intel | 命令行 |
+| `skillctl-alpha-*-linux-x86_64.tar.gz` | Linux x86_64 | 命令行 |
+| `skillctl-alpha-*-linux-aarch64.tar.gz` | Linux ARM64 | 命令行 |
+| `skillctl-alpha-*-windows-x86_64.zip` | Windows x86_64 | 命令行 |
 
 下载页：<https://github.com/asdshuaishuai/StarTide/releases>
 
-客户端目前只有 macOS 版——GUI 工具链（GPUI）还没有 Windows / Linux 后端。
-命令行三个平台都有。
+> 发布版是**纯词面**构建（没有链接 llama.cpp / ONNX Runtime），所以
+> `skillctl embed` 与向量路不可用——但 `find` 走的就是词面 + 元数据那条路，
+> 评测上它本来就是最好的一条（Hit@1 0.912）。要向量路请自行编译引擎。
 
 ### 从源码构建
 

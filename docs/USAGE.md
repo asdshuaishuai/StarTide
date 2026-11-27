@@ -26,17 +26,23 @@ title: 使用手册
 
 ### 1.1 下载预编译产物（最快）
 
-每次推送都会在 Actions 上构建产物，打 `v*` 标签会发布成 Release：
-<https://github.com/asdshuaishuai/StarTide/releases>
+每次推送都会在 Actions 上构建产物，打标签会发布成 Release。当前是**阿尔法测试版，
+没有正式版本号**：
+
+**→ [StarTide · alpha 2026-11-28](https://github.com/asdshuaishuai/StarTide/releases/tag/alpha-2026-11-28)**
 
 | 产物 | 平台 |
 |---|---|
-| `StarTide-<版本>-macos-arm64.zip` / `-macos-x86_64.zip` | 桌面客户端（**包里带引擎**，解压即用） |
-| `skillctl-<版本>-macos-{arm64,x86_64}.tar.gz` | macOS 命令行 |
-| `skillctl-<版本>-linux-{x86_64,aarch64}.tar.gz` | Linux 命令行 |
-| `skillctl-<版本>-windows-x86_64.zip` | Windows 命令行 |
+| `StarTide-alpha-*-macos-{arm64,x86_64}.zip` | 桌面客户端（**包里带引擎**，解压即用） |
+| `StarTide-alpha-*-windows-x86_64.zip` | 桌面客户端 + 引擎（两个 exe 放同一目录） |
+| `skillctl-alpha-*-macos-{arm64,x86_64}.tar.gz` | macOS 命令行 |
+| `skillctl-alpha-*-linux-{x86_64,aarch64}.tar.gz` | Linux 命令行 |
+| `skillctl-alpha-*-windows-x86_64.zip` | Windows 命令行 |
 
-客户端只有 macOS 版：GUI 工具链（GPUI）还没有 Windows / Linux 后端。
+发布版是**纯词面**构建（没链接 llama.cpp / ONNX Runtime），所以向量路不可用；
+`find` 走词面 + 元数据那条路，本来就是评测上最好的一条（Hit@1 0.912）。
+
+Linux 桌面客户端还在试（GUI 工具链的 Linux 后端需要一堆系统库），暂不发布。
 
 ### 1.2 从源码构建 CLI
 

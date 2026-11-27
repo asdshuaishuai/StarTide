@@ -270,7 +270,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: StarTide-${{ matrix.label }}
-          path: dist/*
+          # Only the archive: the loose binaries are build output, not a
+          # thing to hand out.
+          path: dist/StarTide-*
           if-no-files-found: warn
 
   # -------------------------------------------------------------- release
